@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveDataTypeable
+           , OverloadedStrings
            , ScopedTypeVariables #-}
 
 import System.IO
@@ -7,22 +8,19 @@ import System.IO (hSetBuffering, stdout, stderr, BufferMode (NoBuffering))
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as L
 import qualified Data.Text.Lazy.IO as L
+import Control.Applicative ((<$>))
 import Control.Monad.Lazy (forM', mapM')
 import Data.Maybe (catMaybes)
 import qualified Data.Binary as Binary
 import qualified Data.Vector as V
 import qualified Data.ListLike as LL
 
-import qualified Data.CRF.InOut as InOut
-import qualified Data.CRF.Codec as Codec
 import qualified SGD
-import qualified Data.CRF.Model as Model
-import           Data.CRF.Gradient ()
-import qualified Data.CRF.Feature as Feature
-import qualified Data.CRF.XRYs as XRYs
+import qualified Data.CRF as CRF
+
 import qualified Format.Plain as Plain
 import qualified Observation.Types as Obv
-import qualified Observation.Selection as ObvSelect
+import qualified Observation.Selection as ObSel
 
 schema = [lemma 0, substring 0]
 -- schema = [orth 0, lowerLemma 0, lowerOrth (-1), lowerOrth 1, substring 0]
@@ -93,76 +91,64 @@ main = do
 exec args@TrainMode{} = do
     hSetBuffering stdout NoBuffering
 
-    codec <- return . Codec.fromWords . concat
-        =<< readData (trainPath args)
-    trainInts <- return . map (Codec.encodeSent codec)
-        =<< readData (trainPath args)
+    let readTrain = readData $ trainPath args
+    let readEval  = readData $ evalPath args
 
-    -- TODO: change "config" name to something better ?
-    -- Basic data config, e.g. set of labels.
-    config <- XRYs.mkConfig $ Codec.fromWords $ concat trainInts
-
-    trainPart <- return $ LL.fromList $ map (XRYs.mkXRYs config) trainInts
-    evalPart <- if null $ evalPath args
-        then return $ LL.fromList []
-        else do
-            evalInts <- return . map (Codec.encodeSent codec)
-                =<< readData (evalPath args)
-            return $ LL.fromList $ map (XRYs.mkXRYs config) evalInts
-
-    -- To enforce type:
-    return (trainPart :: V.Vector XRYs.XRYs)
+    codec <- CRF.fromWords "O" . concat <$> readTrain
+    -- codec <- CRF.mkCodec . concat <$> readTrain
+    trainData <- V.fromList . map (CRF.encodeSent' codec) <$> readTrain
+    evalData  <- V.fromList . map (CRF.encodeSent' codec) <$> readEval
     
-    let initCrf = Model.makeModel $ concat
-                $ map Feature.featuresIn' $ LL.toList trainPart
+    let initCrf = CRF.mkModel $ CRF.present trainData
     sgdArgs <- return $ SGD.SgdArgs
         { SGD.batchSize = batchSize args
         , SGD.regVar = regVar args
         , SGD.iterNum = iterNum args
         , SGD.scale0 = scale0 args
         , SGD.tau = tau args }
-    crf <- SGD.sgd sgdArgs trainPart evalPart initCrf
+    crf <- SGD.sgd sgdArgs trainData evalData initCrf
 
     if not $ null $ outModel args then do
         putStrLn $ "\nSaving model in " ++ outModel args ++ "..."
-        Binary.encodeFile (outModel args) (crf, codec, config)
+        Binary.encodeFile (outModel args) (crf, codec)
     else
         return ()
 
-exec args@TagMode{} = do
-    -- putStr $ "Loading model from " ++ inModel ++ "..."
-    model <- Binary.decodeFile $ inModel args
-    --putStr "\n"
+-- exec args@TagMode{} = do
+--     -- putStr $ "Loading model from " ++ inModel ++ "..."
+--     model <- Binary.decodeFile $ inModel args
+--     --putStr "\n"
+-- 
+--     plain <- if null $ dataPath args 
+--         then readPlain "stdin" =<< L.getContents
+--         else readPlain (dataPath args) =<< L.readFile (dataPath args)
+-- 
+--     tagged <- return $ map (tagSent model) plain
+-- --     tagged <- return
+-- --         ( map (tagSent model) plainData
+-- --           `using` parBuffer 50 (evalList L.evalLincWord) )
+-- 
+--     mapM_ print tagged
 
-    plain <- if null $ dataPath args 
-        then readPlain "stdin" =<< L.getContents
-        else readPlain (dataPath args) =<< L.readFile (dataPath args)
+-- -- TODO: Uwzglednic mozliwosc wystpowania ograniczen R !
+-- tagSent :: (Model.Model, Codec.Codec T.Text, XRYs.Config)
+--         -> Plain.PlainSent -> Plain.PlainSent
+-- tagSent (crf, codec, cfg) plain =
+--     let withObvs = ObSel.mkSentRM schema plain
+--         encoded = XRYs.mkXRYs cfg $ Codec.encodeSent codec withObvs
+--         choiceIxs = map (LL.index allLabels) $ Model.tag crf encoded
+--         choices = [Codec.decodeL codec i | i <- choiceIxs]
+--         applyChoice ((word, _oldLabel), label) = (word, label)
+--         allLabels = XRYs.allLabels cfg
+--         (Plain.PlainSent plainSent) = plain
+--     in  Plain.PlainSent $ LL.fromList $ map applyChoice
+--                         $ zip (LL.toList plainSent) choices
 
-    tagged <- return $ map (tagSent model) plain
---     tagged <- return
---         ( map (tagSent model) plainData
---           `using` parBuffer 50 (evalList L.evalLincWord) )
-
-    mapM_ print tagged
-
--- TODO: Uwzglednic mozliwosc wystpowania ograniczen R !
-tagSent :: (Model.Model, Codec.Codec T.Text, XRYs.Config)
-        -> Plain.PlainSent -> Plain.PlainSent
-tagSent (crf, codec, cfg) plain =
-    let withObvs = ObvSelect.mkSentRM schema plain
-        encoded = XRYs.mkXRYs cfg $ Codec.encodeSent codec withObvs
-        choiceIxs = map (LL.index allLabels) $ Model.tag crf encoded
-        choices = [Codec.decodeL codec i | i <- choiceIxs]
-        applyChoice ((word, _oldLabel), label) = (word, label)
-        allLabels = XRYs.allLabels cfg
-        (Plain.PlainSent plainSent) = plain
-    in  Plain.PlainSent $ LL.fromList $ map applyChoice
-                        $ zip (LL.toList plainSent) choices
-
-readData :: FilePath -> IO [InOut.SentRM T.Text]
+-- | FIXME: Serve null path.
+readData :: FilePath -> IO [ObSel.Sent]
 readData path = do
     plainTrain <- readPlain path =<< L.readFile path
-    return $ map (ObvSelect.mkSentRM schema) plainTrain
+    return $ map (ObSel.mkSent schema) plainTrain
 
 readPlain :: String -> L.Text -> IO [Plain.PlainSent]
 readPlain path = catchErrors . Plain.parseDoc path
