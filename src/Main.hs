@@ -60,8 +60,7 @@ data Args
     , outModel :: FilePath }
   | TagMode
     { dataPath :: FilePath
-    , inModel :: FilePath
-    , morphosFormat :: Bool }
+    , inModel :: FilePath }
   deriving (Data, Typeable, Show)
 
 trainMode = TrainMode
@@ -78,8 +77,7 @@ trainMode = TrainMode
 tagMode = TagMode
     { inModel = def &= argPos 0 &= typ "MODEL"
     , dataPath = def &= typFile
-        &= help "Input file; if not specified, read from stdin"
-    , morphosFormat = False &= help "Is input in Morphos format" }
+        &= help "Input file; if not specified, read from stdin" }
 
 argModes :: Mode (CmdArgs Args)
 argModes = cmdArgsMode $ modes [trainMode, tagMode]
@@ -98,7 +96,7 @@ exec args@TrainMode{} = do
     trainData <- V.fromList <$> map (CRF.encodeSent' codec) <$> readTrain
     evalData  <- V.fromList <$> map (CRF.encodeSent' codec) <$> readEval
     
-    let initCrf = CRF.mkModel $ CRF.present trainData
+    let initCrf = CRF.mkModel $ CRF.presentFeats trainData
     sgdArgs <- return $ SGD.SgdArgs
         { SGD.batchSize = batchSize args
         , SGD.regVar = regVar args
@@ -113,35 +111,25 @@ exec args@TrainMode{} = do
     else
         return ()
 
--- exec args@TagMode{} = do
---     -- putStr $ "Loading model from " ++ inModel ++ "..."
---     model <- Binary.decodeFile $ inModel args
---     --putStr "\n"
--- 
---     plain <- if null $ dataPath args 
---         then readPlain "stdin" =<< L.getContents
---         else readPlain (dataPath args) =<< L.readFile (dataPath args)
--- 
---     tagged <- return $ map (tagSent model) plain
--- --     tagged <- return
--- --         ( map (tagSent model) plainData
--- --           `using` parBuffer 50 (evalList L.evalLincWord) )
--- 
---     mapM_ print tagged
+exec args@TagMode{} = do
+    model <- Binary.decodeFile $ inModel args
 
--- -- TODO: Uwzglednic mozliwosc wystpowania ograniczen R !
--- tagSent :: (Model.Model, Codec.Codec T.Text, XRYs.Config)
---         -> Plain.PlainSent -> Plain.PlainSent
--- tagSent (crf, codec, cfg) plain =
---     let withObvs = ObSel.mkSentRM schema plain
---         encoded = XRYs.mkXRYs cfg $ Codec.encodeSent codec withObvs
---         choiceIxs = map (LL.index allLabels) $ Model.tag crf encoded
---         choices = [Codec.decodeL codec i | i <- choiceIxs]
---         applyChoice ((word, _oldLabel), label) = (word, label)
---         allLabels = XRYs.allLabels cfg
---         (Plain.PlainSent plainSent) = plain
---     in  Plain.PlainSent $ LL.fromList $ map applyChoice
---                         $ zip (LL.toList plainSent) choices
+    plain <- if null $ dataPath args 
+        then readPlain "stdin" =<< L.getContents
+        else readPlain (dataPath args) =<< L.readFile (dataPath args)
+
+    tagged <- return $ map (tagSent model) plain
+--     tagged <- return
+--         ( map (tagSent model) plainData
+--           `using` parBuffer 50 (evalList L.evalLincWord) )
+
+    mapM_ print tagged
+
+tagSent :: (CRF.Model, CRF.Codec T.Text) -> Plain.PlainSent -> Plain.PlainSent
+tagSent (crf, codec) plain =
+    let encoded = CRF.encodeSent codec $ ObSel.mkSent schema plain
+        choices = map (CRF.decodeL codec) $ CRF.tag crf encoded
+    in  Plain.applyLabels plain choices
 
 -- | FIXME: Serve null path.
 readData :: FilePath -> IO [ObSel.Sent]
@@ -158,12 +146,3 @@ catchErrors dataSet =
   where
     putErr err = hPutStr stderr (err ++ "\n") >> return Nothing
     justify = return . Just
-
--- readRawData path = catchErrors . I.readMarked =<< L.readFile path
--- catchErrors :: [Either String (I.SentRM Int)] -> IO [I.SentRM Int]
--- catchErrors dataSet = do
---     dataSet' <- forM' dataSet $ \sentOrErr ->
---       case sentOrErr of
---         Left err -> hPutStr stderr (err ++ "\n") >> return []
---         Right sent -> return sent
---     return $ filter (not . null) dataSet'

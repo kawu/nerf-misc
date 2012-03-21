@@ -6,6 +6,7 @@ module Format.Plain
 , PlainSent (..)
 , Word
 , Label
+, applyLabels
 ) where
 
 import Control.Applicative ((<*), (*>), (<$>), (<*>))
@@ -27,6 +28,12 @@ type Parser = Parsec T.Text ()
 type Word = T.Text
 type Label = T.Text
 newtype PlainSent = PlainSent (V.Vector (Word, Label))
+
+applyLabels :: PlainSent -> [Label] -> PlainSent
+applyLabels (PlainSent plain) xs =
+    PlainSent $ V.fromList $ map apply $ zip (V.toList plain) xs
+  where
+    apply ((word, _), label) = (word, label)
 
 instance Show PlainSent where
     show (PlainSent sent) = unwords $ map showWL $ V.toList sent
