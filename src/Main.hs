@@ -94,10 +94,9 @@ exec args@TrainMode{} = do
     let readTrain = readData $ trainPath args
     let readEval  = readData $ evalPath args
 
-    codec <- CRF.fromWords "O" . concat <$> readTrain
-    -- codec <- CRF.mkCodec . concat <$> readTrain
-    trainData <- V.fromList . map (CRF.encodeSent' codec) <$> readTrain
-    evalData  <- V.fromList . map (CRF.encodeSent' codec) <$> readEval
+    codec <- CRF.mkCodec "O" <$> readTrain
+    trainData <- V.fromList <$> map (CRF.encodeSent' codec) <$> readTrain
+    evalData  <- V.fromList <$> map (CRF.encodeSent' codec) <$> readEval
     
     let initCrf = CRF.mkModel $ CRF.present trainData
     sgdArgs <- return $ SGD.SgdArgs
