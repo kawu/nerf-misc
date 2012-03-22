@@ -57,6 +57,10 @@ data Stats = Stats
     , fn :: Int }
     deriving (Show)
 
+accuracy (Stats tp tn fp fn)
+    = fromIntegral (tp + tn)
+    / fromIntegral (tp + tn + fp + fn)
+
 precision (Stats tp tn fp fn)
     = fromIntegral tp
     / fromIntegral (tp + fp)
@@ -65,9 +69,11 @@ recall (Stats tp tn fp fn)
     = fromIntegral tp
     / fromIntegral (tp + fn)
 
-accuracy (Stats tp tn fp fn)
-    = fromIntegral (tp + tn)
-    / fromIntegral (tp + tn + fp + fn)
+fmeasure s =
+    (2.0 * p * r) / (p + r)
+  where
+    p = precision s
+    r = recall s
 
 add :: Stats -> Stats -> Stats
 add s1 s2 = Stats
@@ -106,6 +112,8 @@ printStats s = do
     print $ precision s
     putStr "recall = "
     print $ recall s
+    putStr "F-measure = "
+    print $ fmeasure s
 
 main = do
     [path1, path2] <- getArgs
