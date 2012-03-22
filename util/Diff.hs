@@ -57,6 +57,18 @@ data Stats = Stats
     , fn :: Int }
     deriving (Show)
 
+precision (Stats tp tn fp fn)
+    = fromIntegral tp
+    / fromIntegral (tp + fp)
+
+recall (Stats tp tn fp fn)
+    = fromIntegral tp
+    / fromIntegral (tp + fn)
+
+accuracy (Stats tp tn fp fn)
+    = fromIntegral (tp + tn)
+    / fromIntegral (tp + tn + fp + fn)
+
 add :: Stats -> Stats -> Stats
 add s1 s2 = Stats
     { tp = tp s1 + tp s2
@@ -78,8 +90,25 @@ compareSent gold other
 stats :: [Sent] -> [Sent] -> Stats
 stats ds1 ds2 = foldl1 add [compareSent s1 s2 | (s1, s2) <- zip ds1 ds2]
 
+printStats :: Stats -> IO ()
+printStats s = do
+    putStr "true positives = "
+    print $ tp s
+    putStr "false positives = "
+    print $ fp s
+    putStr "true negatives = "
+    print $ tn s
+    putStr "false negatives = "
+    print $ fp s
+    putStr "accuracy = "
+    print $ accuracy s
+    putStr "precision = "
+    print $ precision s
+    putStr "recall = "
+    print $ recall s
+
 main = do
     [path1, path2] <- getArgs
     gold  <- catchErrors . parseDoc path1 =<< readFile path1
     other <- catchErrors . parseDoc path2 =<< readFile path2
-    print $ stats gold other
+    printStats $ stats gold other
