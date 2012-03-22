@@ -105,18 +105,18 @@ exec args@TrainMode{} = do
     let readTrain = readData $ trainPath args
     let readEval  = readData $ evalPath args
 
-    inCrf <- if null $ loadModel args
+    inModel <- if null $ loadModel args
         then return Nothing 
         else Just <$> Binary.decodeFile (loadModel args)
 
-    codec <- case inCrf of
+    codec <- case inModel of
         Just (_, codec) -> return codec
         Nothing         -> CRF.mkCodec "O" <$> readTrain
 
     trainData <- V.fromList <$> map (CRF.encodeSent' codec) <$> readTrain
     evalData  <- V.fromList <$> map (CRF.encodeSent' codec) <$> readEval
     
-    crf <- return $ case inCrf of
+    crf <- return $ case inModel of
         Just (crf, _) -> crf
         Nothing       -> CRF.mkModel $ CRF.presentFeats trainData
 
