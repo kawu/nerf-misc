@@ -68,10 +68,11 @@ data Args
     , regVar :: Double
     , scale0 :: Double
     , tau :: Double
+    , loadModel :: FilePath
     , outModel :: FilePath }
   | TagMode
     { dataPath :: FilePath
-    , inModel :: FilePath }
+    , loadModel :: FilePath }
   deriving (Data, Typeable, Show)
 
 trainMode = TrainMode
@@ -83,10 +84,11 @@ trainMode = TrainMode
     , regVar = 10.0 &= help "Regularization variance"
     , scale0 = 1.0 &= help "Initial scale parameter"
     , tau = 5.0 &= help "Initial tau parameter"
+    , loadModel = def &= typFile &= help "Input model file"
     , outModel = def &= typFile &= help "Output model file" }
 
 tagMode = TagMode
-    { inModel = def &= argPos 0 &= typ "MODEL"
+    { loadModel = def &= argPos 0 &= typ "MODEL"
     , dataPath = def &= typFile
         &= help "Input file; if not specified, read from stdin" }
 
@@ -103,27 +105,37 @@ exec args@TrainMode{} = do
     let readTrain = readData $ trainPath args
     let readEval  = readData $ evalPath args
 
-    codec <- CRF.mkCodec "O" <$> readTrain
+    inCrf <- if null $ loadModel args
+        then return Nothing 
+        else Just <$> Binary.decodeFile (loadModel args)
+
+    codec <- case inCrf of
+        Just (_, codec) -> return codec
+        Nothing         -> CRF.mkCodec "O" <$> readTrain
+
     trainData <- V.fromList <$> map (CRF.encodeSent' codec) <$> readTrain
     evalData  <- V.fromList <$> map (CRF.encodeSent' codec) <$> readEval
     
-    let initCrf = CRF.mkModel $ CRF.presentFeats trainData
+    crf <- return $ case inCrf of
+        Just (crf, _) -> crf
+        Nothing       -> CRF.mkModel $ CRF.presentFeats trainData
+
     sgdArgs <- return $ SGD.SgdArgs
         { SGD.batchSize = batchSize args
         , SGD.regVar = regVar args
         , SGD.iterNum = iterNum args
         , SGD.scale0 = scale0 args
         , SGD.tau = tau args }
-    crf <- SGD.sgd sgdArgs trainData evalData initCrf
+    crf' <- SGD.sgd sgdArgs trainData evalData crf
 
     if not $ null $ outModel args then do
         putStrLn $ "\nSaving model in " ++ outModel args ++ "..."
-        Binary.encodeFile (outModel args) (crf, codec)
+        Binary.encodeFile (outModel args) (crf', codec)
     else
         return ()
 
 exec args@TagMode{} = do
-    model <- Binary.decodeFile $ inModel args
+    model <- Binary.decodeFile $ loadModel args
 
     plain <- if null $ dataPath args 
         then readPlain "stdin" =<< L.getContents
