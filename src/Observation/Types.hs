@@ -6,17 +6,24 @@ module Observation.Types
 , ObserRule
 , Obser
 , orth
+, lowerOrth
+, upperOnlyOrth
 , prefix
 , suffix
 , group
+, join
 , substrings
 , interps
 , map
+, shape
+, packedShape
 ) where
 
 import		 Prelude hiding (map)
 import qualified Data.Set as S
 import qualified Data.Text as T
+import qualified Data.Char as C
+import qualified Data.List as List
 import           Data.Maybe (maybeToList)
 import           Control.Applicative ((<$>))
 
@@ -51,6 +58,16 @@ map :: L.Segm s => (Obser -> Obser) -> ObserRule s -> ObserRule s
 map f rule sent k = do
     x <- rule sent k
     [f x]
+
+lowerOrth :: L.Segm s => Int -> ObserRule s
+lowerOrth = map T.toLower . orth
+
+upperOnlyOrth :: L.Segm s => Int -> ObserRule s
+upperOnlyOrth shift sent k = do
+    form <- orth shift sent k
+    case T.find C.isUpper form of
+        Just _  -> return form
+        Nothing -> []
 
 -- | Prefix(es) of given observation rule values.
 prefix :: L.Segm s => Int -> ObserRule s -> ObserRule s
@@ -93,3 +110,23 @@ substrings sn rule sent k = removeDups $ do
     takeSub x start n = T.take n $ T.drop start x
     -- removeDups = id
     removeDups = S.toList . S.fromList
+
+shape :: L.Segm s => ObserRule s -> ObserRule s
+shape =
+    map (T.map translate)
+  where
+    translate char
+        | C.isLower char = 'l'
+        | C.isUpper char = 'u'
+        | C.isDigit char = 'd'
+        | otherwise      = 'x'
+
+packedShape :: L.Segm s => ObserRule s -> ObserRule s
+packedShape rule =
+    map (T.pack . List.map T.head . T.group) $ shape rule
+
+join :: L.Segm s => T.Text -> ObserRule s -> ObserRule s -> ObserRule s
+join with r1 r2 sent k = do
+    x <- r1 sent k
+    y <- r2 sent k
+    return $ x `T.append` with `T.append` y

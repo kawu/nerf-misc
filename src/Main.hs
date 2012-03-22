@@ -6,10 +6,12 @@ import System.IO
 import System.Console.CmdArgs
 import System.IO (hSetBuffering, stdout, stderr, BufferMode (NoBuffering))
 import qualified Data.Text as T
+import qualified Data.Text.IO as T
 import qualified Data.Text.Lazy as L
 import qualified Data.Text.Lazy.IO as L
 import Control.Applicative ((<$>))
 import Control.Monad.Lazy (forM', mapM')
+import Control.Monad (forM_)
 import Data.Maybe (catMaybes)
 import qualified Data.Binary as Binary
 import qualified Data.Vector as V
@@ -19,33 +21,42 @@ import qualified SGD
 import qualified Data.CRF as CRF
 
 import qualified Format.Plain as Plain
-import qualified Observation.Types as Obv
+import qualified Observation.Types as Ob
 import qualified Observation.Selection as ObSel
 
-schema = [lemma 0, substring 0]
+-- schema = [lemma 0, substring 0]
 -- schema = [orth 0, lowerLemma 0, lowerOrth (-1), lowerOrth 1, substring 0]
+schema =
+    [ Ob.lowerOrth 0, Ob.lowerOrth (-1)
+    , Ob.upperOnlyOrth 0, Ob.upperOnlyOrth (-1)
+    , lowerLemma 0, lowerLemma (-1)
+    , shape 0, shape (-1)
+    , packedShape 0, packedShape (-1)
+    , Ob.join "-" (shape 0) (shape (-1))
+    , Ob.join "-" (packedShape 0) (packedShape (-1))
+    , suffixes 0 ]
 
-orth = Obv.orth
-lowerOrth = Obv.map T.toLower . orth
+lowerLemma k = Ob.group $ map ($ Ob.lowerOrth k)
+    [ Ob.prefix 0   
+    , Ob.prefix (-1)
+    , Ob.prefix (-2)
+    , Ob.prefix (-3)
+    , Ob.suffix (-1)
+    , Ob.suffix (-2)
+    , Ob.suffix (-3) ]
 
-lemma k = Obv.group $ map ($ orth k)
-    [ Obv.prefix 0   
-    , Obv.prefix (-1)
-    , Obv.prefix (-2)
-    , Obv.prefix (-3) ]
+suffixes k = Ob.group $ map ($ Ob.orth k)
+    [ Ob.suffix 3
+    , Ob.suffix 4
+    , Ob.suffix 5 ]
 
-lowerLemma k = Obv.group $ map ($ lowerOrth k)
-    [ Obv.prefix 0   
-    , Obv.prefix (-1)
-    , Obv.prefix (-2)
-    , Obv.prefix (-3) ]
+shape k = Ob.shape $ Ob.orth k
+packedShape k = Ob.packedShape $ Ob.orth k
 
-substring k = Obv.group $ map ($ orth k)
-    [ Obv.substrings 1 
-    , Obv.substrings 2 
-    , Obv.substrings 3 ]
-
-suffix k = Obv.suffix 3 $ lowerOrth k
+-- substring k = Ob.group $ map ($ orth k)
+--     [ Ob.substrings 1 
+--     , Ob.substrings 2 
+--     , Ob.substrings 3 ]
 
 data Args
   = TrainMode
