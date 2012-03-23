@@ -24,7 +24,7 @@ mapM' _ [] = return []
 forM' = flip mapM'
 
 pSent :: Parser Sent
-pSent = pWord `sepBy` spaces
+pSent = pWord `endBy` spaces
 
 pWord :: Parser Label
 pWord = pQuoted *> char '/' *> many1 (satisfy $ not . isSpace)
