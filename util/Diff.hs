@@ -112,7 +112,7 @@ printStats s = do
     print $ precision s
     putStr "recall = "
     print $ recall s
-    putStr "F-measure = "
+    putStr "f-measure = "
     print $ fmeasure s
 
 main = do
