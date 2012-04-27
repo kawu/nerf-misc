@@ -11,8 +11,6 @@ import Control.Monad
 import Data.Char (isSpace)
 import Data.Tree
 
-import Debug.Trace (trace)
-
 -- | Lexer definition.
 
 data Tok = Word String
