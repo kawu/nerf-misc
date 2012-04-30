@@ -20,6 +20,7 @@ data Tree a b = Node a (Forest a b)
               deriving (Show)
 type Forest a b = [Tree a b]
 
+-- | Pretty printing.
 class (Show a) => Label a where
     label :: a -> String
 
