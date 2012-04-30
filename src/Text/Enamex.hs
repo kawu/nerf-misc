@@ -9,7 +9,8 @@ import Text.ParserCombinators.Poly.Lazy hiding (Parser)
 import Control.Applicative
 import Control.Monad
 import Data.Char (isSpace)
-import Data.Tree
+
+import qualified Data.AnnTree as T
 
 -- | Lexer definition.
 
@@ -61,32 +62,34 @@ spaces = many (satisfy isSpace)
 
 -- | Parser definition.
 
+type Tree = T.Tree String String
+type Forest = T.Forest String String
 type Parser a = P.Parser Tok a
 
-pForest :: Parser (Forest String)
+pForest :: Parser Forest
 pForest = many pTree
 
-pTree :: Parser (Tree String)
+pTree :: Parser Tree
 pTree = pLeaf <|> pNode
 
-pLeaf :: Parser (Tree String)
-pLeaf = Node . getWord <$> satisfy isWord <*> pure []
+pLeaf :: Parser Tree
+pLeaf = T.Leaf . getWord <$> satisfy isWord
   where getWord (Word x) = x
 
-pNode :: Parser (Tree String)
+pNode :: Parser Tree
 pNode = do
     (TagStart x)  <- satisfy isTagStart
     commit $ do
         f  <- pForest
         (TagEnd x') <- satisfy isTagEnd
         when (x /= x') (fail "Tag start/end mismatch") 
-        return $ Node x f
+        return $ T.Node x f
 
 lexForest :: String -> [Tok]
 lexForest = fst . runParser (lToks <* eof)
 
-parseForest :: String -> Forest String
+parseForest :: String -> Forest
 parseForest = fst . runParser (pForest <* eof) . lexForest
 
-parseEnamex :: String -> [Forest String]
+parseEnamex :: String -> [Forest]
 parseEnamex = map parseForest . lines
