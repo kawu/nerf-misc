@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 -- module Text.NKJP
 -- (
 -- ) where
@@ -18,10 +16,7 @@ import qualified Codec.Compression.GZip as GZip
 import qualified Codec.Archive.Tar as Tar
 
 import Text.XML.PolySoup
-import qualified Data.AnnTree as AnnTree
-
-type Tree   = AnnTree.Tree String String -- ByteString?
-type Forest = AnnTree.Tree String String
+import Data.AnnTree
 
 ignoreFail :: Show a => Tar.Entries a -> [Tar.Entry]
 ignoreFail Tar.Done = []
@@ -30,9 +25,6 @@ ignoreFail (Tar.Fail x) = error $ show x
 
 entries :: FilePath -> IO [Tar.Entry]
 entries tar = ignoreFail . Tar.read . GZip.decompress <$> BS.readFile tar
-
--- entryPath :: Tar.Entry -> Path.FilePath
--- entryPath = Path.decodeString . Tar.entryPath
 
 -- | NKJP directory.
 data NKJPDir = NKJPDir
@@ -69,8 +61,7 @@ morphP :: XmlParser String [MorphSent]
 morphP = true //> morphSentP
 
 morphSentP :: XmlParser String MorphSent
-morphSentP = uncurry MorphSent <$>
-    (tag "s" *> getAttr "xml:id" </> segP)
+morphSentP = uncurry MorphSent <$> (tag "s" *> getAttr "xml:id" </> segP)
 
 segP :: XmlParser String MorphSeg
 segP =
@@ -86,19 +77,61 @@ parseMorph entry =
     (Tar.NormalFile binary _) = Tar.entryContent entry
     content = BS.toString binary
 
--- type ID = String
--- data NESent = NESent
---     { namedID :: ID
---     , names   :: [NE] }
--- data NE  = NE
---     { neID  :: ID 
---     , ne :: String }
+
+data NeSent = NeSent
+    { corresp :: Ptr
+    , names   :: [Ne] }
+    deriving (Show)
+data Ne = Ne
+    { neID      :: ID
+    , neType    :: String
+    , neSubType :: Maybe String
+    , nePtrs    :: [Ptr] }
+    deriving (Show)
+data Ptr = In String
+         | Out String
+         deriving (Show)
+
+namedP :: XmlParser String [NeSent]
+namedP = true //> namedSentP
+
+namedSentP :: XmlParser String NeSent
+namedSentP = uncurry NeSent <$> (tag "s" *> correspP </> neP)
+
+correspP :: TagPred String Ptr
+correspP = parsePtr <$> getAttr "corresp"
+
+parsePtr :: String -> Ptr
+parsePtr ptr = case break (=='#') ptr of
+    (x, []) -> In x
+    (x, y)  -> Out $ tail y
+
+neP :: XmlParser String Ne
+neP = (tag "seg" *> getAttr "xml:id") `join` \neId -> do
+    (typ, subTyp) <- tag "fs" `joinR`
+        ((,) <$> featP "type" <*> optional (featP "subtype") <* ignore)
+    ptrs <- many ptrP
+    return $ Ne neId typ subTyp ptrs
+
+featP :: String -> XmlParser String String
+featP x = (tag "f" *> hasAttr "name" x) `joinR` cut (getAttr "value")
+
+ptrP :: XmlParser String Ptr
+ptrP = parsePtr <$> (cut $ tag "ptr" *> getAttr "target")
+
+parseNamed :: Tar.Entry -> [NeSent]
+parseNamed entry =
+    parseXML namedP content
+  where
+    (Tar.NormalFile binary _) = Tar.entryContent entry
+    content = BS.toString binary
+
 
 main = do
     [tar] <- getArgs
     xs <- entries tar
-    -- mapM_ (print . Path.directory . entryPath) $ xs
     forM_ (getDirs xs) $ \(NKJPDir morph named) -> do
-        forM_ (parseMorph morph) print
+        let ms = parseMorph morph
+            ns = parseNamed named
+        forM_ (zip ms ns) print
         putStrLn ""
-    -- mapM_ print $ getDirs xs
