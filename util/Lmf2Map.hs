@@ -65,20 +65,3 @@ fromListWith :: Ord k => (a -> a -> a) -> [(k, a)] -> M.Map k a
 fromListWith f xs =
     let update m (!k, !x) = M.insertWith' f k x m
     in  foldl' update M.empty xs
-
-
--- main = do
---     [inPath] <- getArgs
---     tags <- parseTags <$> LT.readFile inPath
---     let groups = tail $ groupBy (\_ t -> isLexTag t) tags
---     let dict = fromListWith S.union $ concatMap procGroup groups
---     forM_ (M.toList dict) $ \(k, x) -> do
---         T.putStr k
---         putStr " => "
---         T.putStrLn $ T.intercalate " " $ S.toList x
---   where
---     isLexTag = not . isTagOpenName "LexicalEntry"
---     procGroup grp =
---         let forms = writtenForms grp
---             ne = neType grp
---         in  [(form, S.singleton ne) | form <- forms]
