@@ -17,10 +17,12 @@ module Observation.Types
 , map
 , shape
 , packedShape
+, searchDict
 ) where
 
 import		 Prelude hiding (map)
 import qualified Data.Set as S
+import qualified Data.Map as M
 import qualified Data.Text as T
 import qualified Data.Char as C
 import qualified Data.List as List
@@ -29,26 +31,14 @@ import           Control.Applicative ((<$>))
 
 import qualified Text.Levels as L
 
--- Observation value
+-- | Observation value.
 type Obser = T.Text
 
--- -- Class of observations types parametrized by
--- -- observation type t and sentence type s.
--- class ObserT t s where
---     -- | Observation value for given observation type,
---     -- sentence and sentence position.
---     oValue :: t -> s -> Int -> [Obser]
-
--- Observation type wrapper (using existentials)
--- data ObserBox s = forall t. ObserT t s => ObserBox t
+-- | Observation extraction rule.
 type ObserRule s = s -> Int -> [Obser]
 
--- Selection schema
--- type Schema s = [ObserBox s]
+-- | Selection schema.
 type Schema s = [ObserRule s]
-
--- | TODO: Zastanowic sie nad taka implementacja, przy ktorej
--- wartosc orth bedzie obliczana dla danej pozycji co najwyzej raz !
 
 -- | Orthographic value.
 orth :: L.Segm s => Int -> ObserRule s
@@ -130,3 +120,16 @@ join with r1 r2 sent k = do
     x <- r1 sent k
     y <- r2 sent k
     return $ x `T.append` with `T.append` y
+
+-- Dictionary observation types.
+
+type Orth   = T.Text
+type NeType = T.Text
+type NeDict = M.Map Orth [NeType]
+
+searchDict :: L.Segm s => NeDict -> ObserRule s -> ObserRule s
+searchDict dict rule sent k = do
+    x <- rule sent k
+    case M.lookup x dict of
+        Just entry -> entry
+        Nothing    -> []

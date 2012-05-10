@@ -13,7 +13,8 @@ import Control.Applicative ((<$>))
 import Control.Monad.Lazy (forM', mapM')
 import Control.Monad (forM_)
 import Data.Maybe (catMaybes)
-import qualified Data.Binary as Binary
+import qualified Data.Map as M
+import qualified Data.Binary as B
 import qualified Data.Vector as V
 import qualified Data.ListLike as LL
 
@@ -24,14 +25,24 @@ import qualified Format.Plain as Plain
 import qualified Observation.Types as Ob
 import qualified Observation.Selection as ObSel
 
+-- | FIXME: These definitions should be in one place!
+type Orth   = T.Text
+type NeType = T.Text
+type NeDict = M.Map Orth [NeType]
+
+decodeDict :: FilePath -> IO NeDict
+decodeDict = B.decodeFile
+-- FIXME-END.
+
 -- schema = [lemma 0, substring 0]
 -- schema = [orth 0, lowerLemma 0, lowerOrth (-1), lowerOrth 1, substring 0]
-schema =
+schemaFor = \neDict ->
     [ Ob.lowerOrth 0, Ob.lowerOrth (-1)
     , Ob.upperOnlyOrth 0, Ob.upperOnlyOrth (-1)
     , lowerLemma 0, lowerLemma (-1)
     , shape 0, shape (-1)
     , packedShape 0, packedShape (-1)
+    , searchDict neDict 0, searchDict neDict (-1)
     , Ob.join "-" (shape 0) (shape (-1))
     , Ob.join "-" (packedShape 0) (packedShape (-1))
     , suffixes 0 ]
@@ -52,6 +63,7 @@ suffixes k = Ob.group $ map ($ Ob.orth k)
 
 shape k = Ob.shape $ Ob.orth k
 packedShape k = Ob.packedShape $ Ob.orth k
+searchDict dict k = Ob.searchDict dict $ Ob.orth k
 
 -- substring k = Ob.group $ map ($ orth k)
 --     [ Ob.substrings 1 
@@ -61,6 +73,7 @@ packedShape k = Ob.packedShape $ Ob.orth k
 data Args
   = TrainMode
     { trainPath :: FilePath
+    , neDictPath :: FilePath
     , evalPath :: FilePath
     , workersNum :: Int
     , iterNum :: Double
@@ -72,11 +85,13 @@ data Args
     , outModel :: FilePath }
   | TagMode
     { dataPath :: FilePath
+    , neDictPath :: FilePath
     , loadModel :: FilePath }
   deriving (Data, Typeable, Show)
 
 trainMode = TrainMode
     { trainPath = def &= argPos 0 &= typ "TRAIN-FILE"
+    , neDictPath = def &= argPos 1 &= typ "NE-DICT-FILE"
     , evalPath = def &= typFile &= help "Evaluation data file"
     , workersNum = 1 &= help "Number of gradient-computing workers"
     , iterNum = 10 &= help "Number of SGD iterations"
@@ -89,6 +104,7 @@ trainMode = TrainMode
 
 tagMode = TagMode
     { loadModel = def &= argPos 0 &= typ "MODEL"
+    , neDictPath = def &= argPos 1 &= typ "NE-DICT-FILE"
     , dataPath = def &= typFile
         &= help "Input file; if not specified, read from stdin" }
 
@@ -101,13 +117,15 @@ main = do
 
 exec args@TrainMode{} = do
     hSetBuffering stdout NoBuffering
+    
+    schema <- schemaFor <$> decodeDict (neDictPath args)
 
-    let readTrain = readData $ trainPath args
-    let readEval  = readData $ evalPath args
+    let readTrain = readData schema $ trainPath args
+    let readEval  = readData schema $ evalPath args
 
     inModel <- if null $ loadModel args
         then return Nothing 
-        else Just <$> Binary.decodeFile (loadModel args)
+        else Just <$> B.decodeFile (loadModel args)
 
     codec <- case inModel of
         Just (_, codec) -> return codec
@@ -130,33 +148,35 @@ exec args@TrainMode{} = do
 
     if not $ null $ outModel args then do
         putStrLn $ "\nSaving model in " ++ outModel args ++ "..."
-        Binary.encodeFile (outModel args) (crf', codec)
+        B.encodeFile (outModel args) (crf', codec)
     else
         return ()
 
 exec args@TagMode{} = do
-    model <- Binary.decodeFile $ loadModel args
+    model <- B.decodeFile $ loadModel args
 
     plain <- if null $ dataPath args 
         then readPlain "stdin" =<< L.getContents
         else readPlain (dataPath args) =<< L.readFile (dataPath args)
 
-    tagged <- return $ map (tagSent model) plain
+    schema <- schemaFor <$> decodeDict (neDictPath args)
+    tagged <- return $ map (tagSent schema model) plain
 --     tagged <- return
 --         ( map (tagSent model) plainData
 --           `using` parBuffer 50 (evalList L.evalLincWord) )
 
     mapM_ print tagged
 
-tagSent :: (CRF.Model, CRF.Codec T.Text) -> Plain.PlainSent -> Plain.PlainSent
-tagSent (crf, codec) plain =
+tagSent :: Ob.Schema Plain.PlainSent -> (CRF.Model, CRF.Codec T.Text)
+        -> Plain.PlainSent -> Plain.PlainSent
+tagSent schema (crf, codec) plain =
     let encoded = CRF.encodeSent codec $ ObSel.mkSent schema plain
         choices = map (CRF.decodeL codec) $ CRF.tag crf encoded
     in  Plain.applyLabels plain choices
 
 -- | FIXME: Serve null path.
-readData :: FilePath -> IO [ObSel.Sent]
-readData path = do
+readData :: Ob.Schema Plain.PlainSent -> FilePath -> IO [ObSel.Sent]
+readData schema path = do
     plainTrain <- readPlain path =<< L.readFile path
     return $ map (ObSel.mkSent schema) plainTrain
 
