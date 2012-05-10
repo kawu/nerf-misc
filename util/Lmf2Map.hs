@@ -23,23 +23,23 @@ instance Binary T.Text where
 
 -- LMF parser
 
-type Orth   = T.Text
-type NeType = T.Text
+type Ne   = T.Text
+type Type = T.Text
 
-lmfP :: XmlParser String [(Orth, NeType)]
+lmfP :: XmlParser String [(Ne, Type)]
 lmfP = true ##> lexEntryP
 
-lexEntryP :: XmlParser String [(Orth, NeType)]
+lexEntryP :: XmlParser String [(Ne, Type)]
 lexEntryP = tag "LexicalEntry" `joinR` do
     many_ $ cut $ tag "feat"
     words <- many wordP
     sense <- senseP
     return [(x, sense) | x <- words]
 
-wordP :: XmlParser String Orth
+wordP :: XmlParser String Ne
 wordP = head <$> (tag "Lemma" <|> tag "WordForm" /> featP "writtenForm")
 
-senseP :: XmlParser String NeType
+senseP :: XmlParser String Type
 senseP = head <$> (tag "Sense" //> featP "externalReference" <|> featP "label")
 
 featP :: String -> XmlParser String T.Text
@@ -51,15 +51,25 @@ main = do
     [inPath, outPath] <- getArgs
     entries <- parseXML lmfP <$> readFile inPath
     encodeFile outPath $ mkDict entries
---     forM_ (M.toList dict) $ \(k, x) -> do
+--     forM_ (M.toList $ mkDict entries) $ \(k, x) -> do
 --         T.putStr k
 --         putStr " => "
 --         T.putStrLn $ T.intercalate " " x
 
-mkDict :: [(Orth, NeType)] -> M.Map Orth [NeType]
-mkDict xs = fmap S.toList
-          $ fromListWith S.union
-          $ [(k, S.singleton x) | (k, x) <- xs]
+mkDict :: [(Ne, Type)] -> M.Map Ne [Type]
+mkDict xs
+    = fmap S.toList
+    $ fromListWith S.union
+    $ concatMap process xs
+  where
+    -- | Key k can be a multiword NE.
+    process (k, x) =
+        [(k, label) | k <- ks]
+      where
+        ks = T.words k
+        label = S.singleton $ if length ks == 1
+            then "e-" `T.append` x
+            else "p-" `T.append` x
 
 fromListWith :: Ord k => (a -> a -> a) -> [(k, a)] -> M.Map k a
 fromListWith f xs =
