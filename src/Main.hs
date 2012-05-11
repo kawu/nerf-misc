@@ -132,7 +132,10 @@ exec args@TrainMode{} = do
         Nothing         -> CRF.mkCodec "O" <$> readTrain
 
     trainData <- V.fromList <$> map (CRF.encodeSent' codec) <$> readTrain
-    evalData  <- V.fromList <$> map (CRF.encodeSent' codec) <$> readEval
+    evalData  <- V.fromList <$> map (CRF.encodeSent' codec) <$>
+        if null (evalPath args)
+            then return []
+            else readEval
     
     crf <- return $ case inModel of
         Just (crf, _) -> crf
