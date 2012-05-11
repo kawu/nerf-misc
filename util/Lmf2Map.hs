@@ -33,8 +33,8 @@ lexEntryP :: XmlParser String [(Ne, Type)]
 lexEntryP = tag "LexicalEntry" `joinR` do
     many_ $ cut $ tag "feat"
     words <- many wordP
-    sense <- senseP
-    return [(x, sense) | x <- words]
+    !sense <- senseP
+    return [(x, sense) | !x <- words]
 
 wordP :: XmlParser String Ne
 wordP = head <$> (tag "Lemma" <|> tag "WordForm" /> featP "writtenForm")
