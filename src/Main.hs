@@ -22,7 +22,7 @@ import qualified Data.CRF as CRF
 
 import qualified Format.Plain as Plain
 import qualified Observation.Types as Ob
-import qualified Observation.Selection as ObSel
+import qualified Observation.Selection as Ob
 
 import Data.Adict
 
@@ -133,6 +133,14 @@ exec args@TrainMode{} = do
     let readTrain = readData schema $ trainPath args
     let readEval  = readData schema $ evalPath args
 
+--     readTrain >>= \train -> do 
+--         forM_ train $ \sent -> do 
+--             forM_ sent $ \word -> do
+--                 T.putStr $ T.intercalate " " (ObSel.obs word)
+--                 putStr " => "
+--                 T.putStrLn (ObSel.lab word)
+--             putStrLn ""
+
     inModel <- if null $ loadModel args
         then return Nothing 
         else Just <$> B.decodeFile (loadModel args)
@@ -184,15 +192,15 @@ exec args@TagMode{} = do
 tagSent :: Ob.Schema Plain.PlainSent -> (CRF.Model, CRF.Codec T.Text)
         -> Plain.PlainSent -> Plain.PlainSent
 tagSent schema (crf, codec) plain =
-    let encoded = CRF.encodeSent codec $ ObSel.mkSent schema plain
+    let encoded = CRF.encodeSent codec $ Ob.mkSent schema plain
         choices = map (CRF.decodeL codec) $ CRF.tag crf encoded
     in  Plain.applyLabels plain choices
 
 -- | FIXME: Serve null path.
-readData :: Ob.Schema Plain.PlainSent -> FilePath -> IO [ObSel.Sent]
+readData :: Ob.Schema Plain.PlainSent -> FilePath -> IO [Ob.Sent]
 readData schema path = do
     plainTrain <- readPlain path =<< L.readFile path
-    return $ map (ObSel.mkSent schema) plainTrain
+    return $ map (Ob.mkSent schema) plainTrain
 
 readPlain :: String -> L.Text -> IO [Plain.PlainSent]
 readPlain path = catchErrors . Plain.parseDoc path
