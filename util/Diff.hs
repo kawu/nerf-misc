@@ -105,7 +105,7 @@ printStats s = do
     putStr "true negatives = "
     print $ tn s
     putStr "false negatives = "
-    print $ fp s
+    print $ fn s
     putStr "accuracy = "
     print $ accuracy s
     putStr "precision = "
