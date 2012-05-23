@@ -1,11 +1,13 @@
 {-# LANGUAGE ExistentialQuantification
-           , MultiParamTypeClasses #-}
+           , MultiParamTypeClasses
+           , OverloadedStrings #-}
 
 module Observation.Types
 ( Schema
 , ObserRule
 , Obser
 , orth
+, beg
 , lowerOrth
 , upperOnlyOrth
 , prefix
@@ -18,6 +20,7 @@ module Observation.Types
 , shape
 , packedShape
 , searchDict
+, searchAdict
 ) where
 
 import		 Prelude hiding (map)
@@ -28,6 +31,10 @@ import qualified Data.Char as C
 import qualified Data.List as List
 import           Data.Maybe (maybeToList)
 import           Control.Applicative ((<$>))
+import           Numeric (showFFloat)
+import           Data.ListLike.Text
+
+import Data.Adict
 
 import qualified Text.Levels as L
 
@@ -39,6 +46,16 @@ type ObserRule s = s -> Int -> [Obser]
 
 -- | Selection schema.
 type Schema s = [ObserRule s]
+
+
+-- | Is it a first position in a sentence?
+beg :: L.Segm s => Int -> ObserRule s
+beg shift sent k
+    | x < 0 || x >= L.sentLen sent = []
+    | x == 0 = ["B"]
+    | otherwise = ["I"]
+  where
+    x = shift + k
 
 -- | Orthographic value.
 orth :: L.Segm s => Int -> ObserRule s
@@ -133,3 +150,30 @@ searchDict dict rule sent k = do
     case M.lookup x dict of
         Just entry -> entry
         Nothing    -> []
+
+searchAdict :: L.Segm s => Double -> Int -> Adict Char [T.Text]
+            -> ObserRule s -> ObserRule s
+searchAdict th digits adict rule sent k = do
+    x <- rule sent k
+    (entry, w) <- levenSearch cost th x adict
+    y <- info entry
+    return $ y `T.append` T.pack (roundFloat w)
+  where
+    roundFloat x = take (digits+2) $ showFFloat (Just digits) x ""
+
+-- | Cost function for approximate dictionary searching.
+cost :: Cost Char
+cost =
+    Cost insert delete subst
+  where
+    insert (k, _) = posMod (fromIntegral k)
+    delete (k, _) = posMod (fromIntegral k)
+    subst (k, x) (m, y)
+        | x  == y               = 0
+        | x' == y'              = 0.01
+        | otherwise             = posMod (avg k m)
+      where
+        x' = C.toLower x
+        y' = C.toLower y
+    posMod k = (k+1) ** (-1)
+    avg x y = (fromIntegral x + fromIntegral y) / 2.0

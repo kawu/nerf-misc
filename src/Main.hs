@@ -13,7 +13,6 @@ import Control.Applicative ((<$>))
 import Control.Monad.Lazy (forM', mapM')
 import Control.Monad (forM_)
 import Data.Maybe (catMaybes)
-import qualified Data.Map as M
 import qualified Data.Binary as B
 import qualified Data.Vector as V
 import qualified Data.ListLike as LL
@@ -25,14 +24,22 @@ import qualified Format.Plain as Plain
 import qualified Observation.Types as Ob
 import qualified Observation.Selection as ObSel
 
--- | FIXME: These definitions should be in one place!
-type Orth   = T.Text
-type NeType = T.Text
-type NeDict = M.Map Orth [NeType]
+import Data.Adict
+
+-- | Definitions for casual Data.Map dictionary.
+-- -- | FIXME: These definitions should be in one place!
+-- type Orth   = T.Text
+-- type NeType = T.Text
+-- type NeDict = M.Map Orth [NeType]
+-- 
+-- decodeDict :: FilePath -> IO NeDict
+-- decodeDict = B.decodeFile
+-- -- FIXME-END.
+
+type NeDict = Adict Char [T.Text]
 
 decodeDict :: FilePath -> IO NeDict
 decodeDict = B.decodeFile
--- FIXME-END.
 
 -- schema = [lemma 0, substring 0]
 -- schema = [orth 0, lowerLemma 0, lowerOrth (-1), lowerOrth 1, substring 0]
@@ -63,7 +70,10 @@ suffixes k = Ob.group $ map ($ Ob.orth k)
 
 shape k = Ob.shape $ Ob.orth k
 packedShape k = Ob.packedShape $ Ob.orth k
-searchDict dict k = Ob.searchDict dict $ Ob.orth k
+
+-- | Joined with information, if it is a beginning of a sentence. 
+searchDict dict k = Ob.join "-"
+    (Ob.beg k) (Ob.searchAdict 0.5 1 dict $ Ob.orth k)
 
 -- substring k = Ob.group $ map ($ orth k)
 --     [ Ob.substrings 1 
@@ -149,11 +159,12 @@ exec args@TrainMode{} = do
         , SGD.tau = tau args }
     crf' <- SGD.sgd sgdArgs trainData evalData crf
 
-    if not $ null $ outModel args then do
-        putStrLn $ "\nSaving model in " ++ outModel args ++ "..."
-        B.encodeFile (outModel args) (crf', codec)
-    else
-        return ()
+    if not $ null $ outModel args
+        then do
+            putStrLn $ "\nSaving model in " ++ outModel args ++ "..."
+            B.encodeFile (outModel args) (crf', codec)
+        else
+            return ()
 
 exec args@TagMode{} = do
     model <- B.decodeFile $ loadModel args
