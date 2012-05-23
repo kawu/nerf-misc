@@ -153,12 +153,14 @@ searchDict dict rule sent k = do
 
 searchAdict :: L.Segm s => Double -> Int -> Adict Char [T.Text]
             -> ObserRule s -> ObserRule s
-searchAdict th digits adict rule sent k = do
+searchAdict th digits adict rule sent k = fmap glue $ nub $ do
     x <- rule sent k
     (entry, w) <- levenSearch cost th x adict
     y <- info entry
-    return $ y `T.append` T.pack (roundFloat w)
+    return (y, w)
   where
+    nub = M.toList . M.fromListWith min
+    glue (y, w) = y `T.append` T.pack (roundFloat w)
     roundFloat x = take (digits+2) $ showFFloat (Just digits) x ""
 
 -- | Cost function for approximate dictionary searching.
