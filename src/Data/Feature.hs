@@ -1,5 +1,9 @@
 module Data.Feature
 ( features
+, Ob
+, Lb
+, Ps
+, ObMx
 ) where
 
 import qualified Data.BinTree as T
@@ -13,7 +17,7 @@ type Ps = Int   -- ^ Sentence position
 type ObMx = Ps -> [Ob] 
 
 -- | TODO: Consider storing observation lists in leaves. Perhaps it would
--- make the representation to distant from the situation when we do
+-- make the representation to distant from the situation when we perform
 -- expectation computations?
 type Tree = T.Tree Lb (Lb, Ps)
 
@@ -21,7 +25,7 @@ rootLb :: Tree -> Lb
 rootLb (Leaf (lb, ps)) = lb
 rootLb (Node lb _ _)   = lb
 
--- | TODO: Annotate as unboxed? The same in CRF module?
+-- | TODO: Annotate as unboxed? The same in CRF package?
 data Feature = OFeature !Ob !Lb     -- ^ Observation feature
              | RFeature !Lb !Lb !Lb -- ^ Rule (parent, left, right) feature
 
