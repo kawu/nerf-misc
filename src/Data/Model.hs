@@ -30,7 +30,7 @@ data Cut a
 
 data CutStrategy a = CutStrategy
     { cInit :: a
-    , cJoin :: Rule -> Cut a -> Cut a -> Maybe (Cut a)
+    , cJoin :: Rule -> Cut a -> Cut a -> Maybe (Cut a) }
 
 cInit :: CutStrategy a -> Double -> Maybe (Val a)
 
