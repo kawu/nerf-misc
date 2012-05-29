@@ -80,7 +80,7 @@ import Control.Applicative ((<$>), (<*>))
 data Strategy a b = Strategy
    { sLeaf :: a -> b
    , sCut  :: (a, b) -> Bool
-   , sJoin :: (a, b) -> a -> (a, b) -> Maybe b }
+   , sJoin :: (a, b) -> a -> (a, b) -> b }
 
 -- | AND strategies.
 (<+>) :: Strategy a b -> Strategy a c -> Strategy a (b, c)
@@ -90,32 +90,33 @@ data Strategy a b = Strategy
     leaf x = (l x, l' x)
     cut (a, (x, y)) = c (a, x) && c' (a, y)
     join (a, (x, y)) b (c, (x', y')) =
-        (,) <$> j (a, x) b (c, x') <*> j' (a, y) b (c, y')
+        ( j  (a, x) b (c, x')
+        , j' (a, y) b (c, y') )
 
 -- TODO: OR strategies.
 
 
 -- | Greedy strategy.
-greedy :: Ord a => Strategy a ()
+greedy :: Ord a => Strategy a Bool
 greedy = Strategy leaf cut join
   where
-    leaf _ = ()
-    cut  _ = False
+    leaf _      = False
+    cut         = snd
     join (x, _) z (y, _)
-        | x > z = Nothing
-        | y > z = Nothing
-        | otherwise = Just ()
+        | x > z = True
+        | y > z = True
+        | otherwise = False
     
 -- | Greedy strategy with threshold.
-greedyTh :: Double -> Strategy Double ()
+greedyTh :: Double -> Strategy Double Bool
 greedyTh k = Strategy leaf cut join
   where
-    leaf _ = ()
-    cut  _ = False
+    leaf _ = False
+    cut    = snd
     join (x, _) z (y, _)
-        | x > z + k = Nothing
-        | y > z + k = Nothing
-        | otherwise = Just ()
+        | x > z + k = True
+        | y > z + k = True
+        | otherwise = False
 
 positive :: Strategy Double ()
 positive = moreThan 0
@@ -123,6 +124,6 @@ positive = moreThan 0
 moreThan :: Double -> Strategy Double ()
 moreThan k = Strategy leaf cut join
   where
-    leaf _ = ()
+    leaf _     = ()
     cut (x, _) = x > k
-    join _ _ _ = Just ()
+    join _ _ _ = ()
