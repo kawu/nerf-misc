@@ -1,4 +1,11 @@
-module Data.CutStrategy where
+module Data.CutStrategy
+( Strategy (..)
+, (<+>)
+, greedy
+, greedyTh
+, positive
+, moreThan
+where
 
 import Control.Applicative ((<$>), (<*>))
 
