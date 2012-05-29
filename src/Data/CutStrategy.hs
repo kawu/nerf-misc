@@ -1,4 +1,4 @@
-module Control.CutStrategy where
+module Data.CutStrategy where
 
 import Control.Applicative ((<$>), (<*>))
 
