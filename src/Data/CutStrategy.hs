@@ -5,7 +5,7 @@ module Data.CutStrategy
 , greedyTh
 , positive
 , moreThan
-where
+) where
 
 import Control.Applicative ((<$>), (<*>))
 
