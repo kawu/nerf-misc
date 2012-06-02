@@ -85,9 +85,13 @@ import Control.Applicative ((<$>), (<*>))
  -}
 
 data Strategy a b = Strategy
+    -- | @b@ value for leaf computation.
    { sLeaf :: a -> b
+   -- | Cut computation node or not?
    , sCut  :: (a, b) -> Bool
-   , sJoin :: (a, b) -> a -> (a, b) -> b }
+   -- | Join two computations given their parents @b@ value (or Nothing,
+   -- if root computation is visited for the first time).
+   , sJoin :: (a, b) -> Maybe b -> (a, b) -> b }
 
 -- | AND strategies.
 (<+>) :: Strategy a b -> Strategy a c -> Strategy a (b, c)
@@ -97,40 +101,36 @@ data Strategy a b = Strategy
     leaf x = (l x, l' x)
     cut (a, (x, y)) = c (a, x) && c' (a, y)
     join (a, (x, y)) b (c, (x', y')) =
-        ( j  (a, x) b (c, x')
-        , j' (a, y) b (c, y') )
+        ( j  (a, x) b1 (c, x')
+        , j' (a, y) b2 (c, y') )
+      where
+        (b1, b2) = case b of
+            Nothing       -> (Nothing, Nothing)
+            Just (b1, b2) -> (Just b1, Just b2)
 
 -- TODO: OR strategies.
 
 
 -- | Greedy strategy.
-greedy :: Ord a => Strategy a Bool
-greedy = Strategy leaf cut join
-  where
-    leaf _      = False
-    cut         = snd
-    join (x, _) z (y, _)
-        | x > z = True
-        | y > z = True
-        | otherwise = False
+greedy :: (Ord b, Num b) => (a -> b) -> Strategy a b
+greedy f = greedyTh f 0
     
 -- | Greedy strategy with threshold.
-greedyTh :: Double -> Strategy Double Bool
-greedyTh k = Strategy leaf cut join
+greedyTh :: (Ord b, Num b) => (a -> b) -> b -> Strategy a b
+greedyTh f k = Strategy leaf cut join
   where
-    leaf _ = False
-    cut    = snd
-    join (x, _) z (y, _)
-        | x > z + k = True
-        | y > z + k = True
-        | otherwise = False
+    leaf        = f
+    cut (x, y)  = f x < y + k
+    join (x, _) (Just z) (y, _) = force $ maximum [f x, f y, z]
+    join (x, _) Nothing  (y, _) = force $ max (f x) (f y)
+    force x = x `seq` x
 
-positive :: Strategy Double ()
-positive = moreThan 0
+positive :: (Ord b, Num b) => (a -> b) -> Strategy a ()
+positive f = moreThan f 0
 
-moreThan :: Double -> Strategy Double ()
-moreThan k = Strategy leaf cut join
+moreThan :: (Ord b, Num b) => (a -> b) -> b -> Strategy a ()
+moreThan f k = Strategy leaf cut join
   where
     leaf _     = ()
-    cut (x, _) = x > k
+    cut (x, _) = f x > k
     join _ _ _ = ()
