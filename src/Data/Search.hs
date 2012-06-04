@@ -9,7 +9,7 @@ import Data.CutStrategy
 import qualified Data.Search.Open as O
 import qualified Data.Search.Closed as C
 
--- Seaching through forest space (only binary trees) with 
+-- Searching through forest space (only binary trees) with 
 -- respect to given cutting strategy.
 
 -- | FIXME: Move Nerf definition to separate module.
@@ -50,8 +50,7 @@ search strategy nerf phi sentLen = closed
 update :: Strategy a b -> Nerf -> Phi a
        -> (O.Open (a, b), C.Closed (a, b))
        -> (O.Open (a, b), C.Closed (a, b))
-update strategy nerf phi what =
-    (open', closed')
+update strategy nerf phi what = (open', closed')
   where
     (n, open, closed) =
         let (open, closed) = what
@@ -79,7 +78,7 @@ join strategy phi n r m =
     (Node (getBeg n) (root r) (getEnd m), (a', b'))
   where
     a' = onRule phi (getA n) r (getA m)
-    b' = sJoin strategy (getA n, getB n) (getA m, getB m)
+    b' = sJoin strategy (snd n) (snd m)
     getBeg = beg.fst
     getEnd = end.fst
     getA = fst.snd
