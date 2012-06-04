@@ -6,18 +6,30 @@ module Data.Search.Closed
 , push
 ) where
 
+import qualified Data.IntMap as I
+
 import Data.Search.Node
 
-data Closed a = Closed a
-
-leftAdjacent :: Node -> Closed a -> [(Node, a)]
-leftAdjacent = undefined
-
-rightAdjacent :: Node -> Closed a -> [(Node, a)]
-rightAdjacent = undefined
+data Closed a = Closed
+    { begOn :: I.IntMap [(Node, a)]
+    , endOn :: I.IntMap [(Node, a)] }
 
 empty :: Closed a
-empty = undefined
+empty = Closed I.empty I.empty
 
-push :: Closed a -> (Node, a) -> Closed a
-push = undefined
+leftAdjacent :: Node -> Closed a -> [(Node, a)]
+leftAdjacent n c = case I.lookup (beg n - 1) (endOn c) of
+    Just xs -> xs
+    Nothing -> []
+
+rightAdjacent :: Node -> Closed a -> [(Node, a)]
+rightAdjacent n c = case I.lookup (end n + 1) (begOn c) of
+    Just xs -> xs
+    Nothing -> []
+
+push :: (Node, a) -> Closed a -> Closed a
+push p c = Closed begOn' endOn'
+  where
+    begOn' = I.insertWith (++) (beg n) [p] (begOn c)
+    endOn' = I.insertWith (++) (end n) [p] (endOn c)
+    n = fst p

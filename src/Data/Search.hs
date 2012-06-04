@@ -39,37 +39,40 @@ data Phi a = Phi
 search :: Strategy a b -> Nerf -> Phi a -> Int -> C.Closed (a, b)
 search strategy nerf phi sentLen = closed
   where
-    (open, closed) = last $ takeWhile (not . O.null . fst)
-                   $ iterate (update strategy nerf phi) (open0, C.empty)
+    (open, closed) = iterMaybe (update strategy nerf phi) (open0, C.empty)
     open0 = O.fromList $ map
         (\(x, i, a) -> (Node i x i, (a, sLeaf strategy a)))
         [ (x, i, onBase phi x i)
         | i <- [0 .. sentLen - 1]
         , x <- labelSet nerf ]
+    iterMaybe f x = case f x of
+        Just x' -> iterMaybe f x'
+        Nothing -> x
 
-update :: Strategy a b -> Nerf -> Phi a
-       -> (O.Open (a, b), C.Closed (a, b))
-       -> (O.Open (a, b), C.Closed (a, b))
-update strategy nerf phi what = (open', closed')
-  where
-    (n, open, closed) =
-        let (open, closed) = what
-            (n, open')     = O.pop open
-        in  (n, open', closed)
 
-    closed' = if sCut strategy (snd n)
-        then C.push closed n
-        else closed
+type Point a b = (O.Open (a, b), C.Closed (a, b))
 
-    nsL = C.leftAdjacent  (fst n) closed 
-    nsR = C.rightAdjacent (fst n) closed 
+update :: Strategy a b -> Nerf -> Phi a -> Point a b -> Maybe (Point a b)
+update strategy nerf phi what = case O.pop (fst what) of
+    Nothing        -> Nothing
+    Just (n, open) -> Just (open', closed')
+      where
+        closed' = if sCut strategy (snd n)
+            then C.push n closed
+            else closed
+        closed = snd what
 
-    open' = O.appendWith dt open $
-        [jn n r m | m <- nsR, r <- rs n m] ++
-        [jn m r n | m <- nsL, r <- rs m n]
-    rs n m = matchChildren nerf (label $ fst n) (label $ fst m)
-    jn = join strategy phi
-    dt (a, b) (a', b') = (phJoin phi a a', sDet strategy b b')
+        open' = O.appendWith dt open $
+            [jn n r m | m <- nsR, r <- rs n m] ++
+            [jn m r n | m <- nsL, r <- rs m n]
+    
+        nsL = C.leftAdjacent  (fst n) closed 
+        nsR = C.rightAdjacent (fst n) closed 
+    
+        rs n m = matchChildren nerf (label $ fst n) (label $ fst m)
+        jn = join strategy phi
+        dt (a, b) (a', b') = (phJoin phi a a', sDet strategy b b')
+
 
 join :: Strategy a b -> Phi a
      -> (Node, (a, b)) -> Rule -> (Node, (a, b))
