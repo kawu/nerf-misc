@@ -1,20 +1,10 @@
 module Data.Feature
 ( features
-, Ob
-, Lb
-, Ps
-, ObMx
 ) where
 
+import Data.Base
 import qualified Data.BinTree as T
 import Data.BinTree hiding (Tree, Forest)
-
-type Ob = Int   -- ^ Observation
-type Lb = Int   -- ^ Label
-type Ps = Int   -- ^ Sentence position
-
--- | Observation matrix: map from sentence position to a list of observations.
-type ObMx = Ps -> [Ob] 
 
 -- | TODO: Consider storing observation lists in leaves. Perhaps it would
 -- make the representation to distant from the situation when we perform

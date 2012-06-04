@@ -9,7 +9,8 @@ module Data.CutStrategy
 
 import Control.Applicative ((<$>), (<*>))
 
-{- 
+{- TODO: Update description, it's out-of-date. 
+ -
  - Strategies and what we expect from them
  -
  - We want to add information about computation "cut", which means that
@@ -86,27 +87,25 @@ import Control.Applicative ((<$>), (<*>))
 
 data Strategy a b = Strategy
     -- | @b@ value for leaf computation.
-   { sLeaf :: a -> b
-   -- | Cut computation node or not?
-   , sCut  :: (a, b) -> Bool
-   -- | Join two computations given their parents @b@ value (or Nothing,
-   -- if root computation is visited for the first time).
-   , sJoin :: (a, b) -> Maybe b -> (a, b) -> b }
+    { sLeaf :: a -> b
+    -- | Cut computation node or not?
+    , sCut  :: (a, b) -> Bool
+    -- | Join two computations.
+    , sJoin :: (a, b) -> (a, b) -> b
+    -- | Determine @b@ value acquired by different joins. 
+    , sDet  :: b -> b -> b }
 
 -- | AND strategies.
 (<+>) :: Strategy a b -> Strategy a c -> Strategy a (b, c)
-(<+>) (Strategy l c j) (Strategy l' c' j') =
-    Strategy leaf cut join
+(<+>) (Strategy l c j d) (Strategy l' c' j' d') =
+    Strategy leaf cut join det
   where
     leaf x = (l x, l' x)
     cut (a, (x, y)) = c (a, x) && c' (a, y)
-    join (a, (x, y)) b (c, (x', y')) =
-        ( j  (a, x) b1 (c, x')
-        , j' (a, y) b2 (c, y') )
-      where
-        (b1, b2) = case b of
-            Nothing       -> (Nothing, Nothing)
-            Just (b1, b2) -> (Just b1, Just b2)
+    join (a, (x, y)) (c, (x', y')) =
+        ( j  (a, x) (c, x')
+        , j' (a, y) (c, y') )
+    det (x, y) (x', y') = (d x x', d' y y')
 
 -- TODO: OR strategies.
 
@@ -117,20 +116,20 @@ greedy f = greedyTh f 0
     
 -- | Greedy strategy with threshold.
 greedyTh :: (Ord b, Num b) => (a -> b) -> b -> Strategy a b
-greedyTh f k = Strategy leaf cut join
+greedyTh f k = Strategy leaf cut join det
   where
     leaf        = f
     cut (x, y)  = f x < y + k
-    join (x, _) (Just z) (y, _) = force $ maximum [f x, f y, z]
-    join (x, _) Nothing  (y, _) = force $ max (f x) (f y)
-    force x = x `seq` x
+    join (x, _) (y, _) = max (f x) (f y)
+    det = max
 
 positive :: (Ord b, Num b) => (a -> b) -> Strategy a ()
 positive f = moreThan f 0
 
 moreThan :: (Ord b, Num b) => (a -> b) -> b -> Strategy a ()
-moreThan f k = Strategy leaf cut join
+moreThan f k = Strategy leaf cut join det
   where
     leaf _     = ()
     cut (x, _) = f x > k
-    join _ _ _ = ()
+    join _ _   = ()
+    det  _ _   = ()
