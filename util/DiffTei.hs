@@ -1,12 +1,11 @@
 -- Compare NE annotations between two TEI corpora. Program works under
 -- assumption, that last directory component in a TEI corpus path 
 -- uniquely identifies document stored in this directory.
--- FIXME: rewrite upper description.
 
 import Data.List (isSuffixOf, sort)
 import Control.Monad ((>=>), filterM, forM_)
 import Control.Applicative ((<$>))
-import System.FilePath (combine)
+import System.FilePath (combine, takeDirectory, takeBaseName)
 import System.Directory
 import System.Environment (getArgs)
 import qualified Data.Map as M
@@ -173,10 +172,18 @@ printStats s = do
 
 main = do
     [goldRoot, otherRoot] <- getArgs
-    goldPaths <- sort <$> collect (isSuffixOf "ann_named.xml") goldRoot
-    otherPahts <- sort <$> collect (isSuffixOf "ann_named.xml") otherRoot
+    goldPaths <- collect (isSuffixOf "ann_named.xml") goldRoot
+    otherPaths <- collect (isSuffixOf "ann_named.xml") otherRoot
 
-    forM_ (zip goldPaths otherPahts) $ \(goldPath, otherPath) -> do
+    let getBase  = takeBaseName . takeDirectory
+    let goldMap  = M.fromList [(getBase x, x) | x <- goldPaths]
+    let otherMap = M.fromList [(getBase x, x) | x <- otherPaths]
+    let keys = S.toList $ M.keysSet goldMap `S.intersection` M.keysSet otherMap
+
+    forM_ keys $ \key -> do
+        print key
+        let goldPath  = goldMap M.! key
+        let otherPath = otherMap M.! key
         goldData  <- parseNamed goldPath
         otherData <- parseNamed otherPath
         printStats $ stats goldData otherData
