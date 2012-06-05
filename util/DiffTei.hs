@@ -191,13 +191,14 @@ main = do
     let keys = S.toList $ M.keysSet goldMap `S.intersection` M.keysSet otherMap
 
     statList <- forM keys $ \key -> do
-        putStrLn key
+        putStr "# " >> putStrLn key
         let goldPath  = goldMap M.! key
         let otherPath = otherMap M.! key
         goldData  <- parseNamed goldPath
         otherData <- parseNamed otherPath
         let s = stats goldData otherData
         printStats s
+        putStrLn ""
         return s
 
     putStrLn ""
