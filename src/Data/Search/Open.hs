@@ -15,6 +15,7 @@ import qualified Data.PQueue.Min as P
 
 import Data.Search.Node
 
+-- | FIXME: queue is redundant -- map also supports minView function.
 data Open a = Open
     { queue :: P.MinQueue Node
     , map   :: M.Map Node a }
