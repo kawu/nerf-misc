@@ -1,14 +1,16 @@
 -- Compare NE annotations between two TEI corpora. Program works under
 -- assumption, that last directory component in a TEI corpus path 
 -- uniquely identifies document stored in this directory.
+-- FIXME: rewrite upper description.
 
-import Data.List (isSuffixOf)
-import qualified Data.Map as M
+import Data.List (isSuffixOf, sort)
 import Control.Monad ((>=>), filterM, forM_)
 import Control.Applicative ((<$>))
 import System.FilePath (combine)
 import System.Directory
 import System.Environment (getArgs)
+import qualified Data.Map as M
+import qualified Data.Set as S
 
 import Text.XML.PolySoup
 
@@ -34,7 +36,7 @@ collect p path = do
     return $ xs ++ concat xs'
 
 -----------------------------------------------------------------
--- | Ann_named.xml file parser copied from Nerf.Text.NKJP module.
+-- Ann_named.xml file parser copied from Nerf.Text.NKJP module.
 -----------------------------------------------------------------
 
 data NeSent = NeSent
@@ -46,7 +48,7 @@ data Ne = Ne
     , neType    :: String
     , neSubType :: Maybe String
     , nePtrs    :: [Ptr] }
-    deriving (Show)
+    deriving (Eq, Ord, Show)
 type ID = String
 data Ptr = In String
          | Out String
@@ -105,11 +107,76 @@ followPtrs (NeSent corresp names) =
 
     neMap = M.fromList [(neID ne, ne) | ne <- names]
 
+-----------------------------------------------------------------
+-- Statistics computation
+-----------------------------------------------------------------
+
+data Stats = Stats
+    { tp :: Int
+    , fp :: Int
+    , fn :: Int }
+    deriving (Show)
+
+precision (Stats tp fp fn)
+    = fromIntegral tp
+    / fromIntegral (tp + fp)
+
+recall (Stats tp fp fn)
+    = fromIntegral tp
+    / fromIntegral (tp + fn)
+
+fmeasure s =
+    (2.0 * p * r) / (p + r)
+  where
+    p = precision s
+    r = recall s
+
+add :: Stats -> Stats -> Stats
+add s1 s2 = Stats
+    { tp = tp s1 + tp s2
+    , fp = fp s1 + fp s2
+    , fn = fn s1 + fn s2 }
+
+-- | Compute difference between NeSentences.
+compareSent :: NeSent -> NeSent -> Stats
+compareSent goldPre otherPre
+    = assert (corresp goldPre == corresp otherPre) "corresp mismatch"
+    $ Stats tp fp fn
+  where
+    gold = S.fromList $ names $ followPtrs goldPre
+    other = S.fromList $ names $ followPtrs otherPre
+    tp = S.size $ gold `S.intersection` other 
+    fp = S.size $ other `S.difference` gold 
+    fn = S.size $ gold `S.difference` other 
+
+assert x msg cont
+    | x == True = cont
+    | otherwise = error msg
+
+stats :: [NeSent] -> [NeSent] -> Stats
+stats ds1 ds2 = foldl1 add [compareSent s1 s2 | (s1, s2) <- zip ds1 ds2]
+
+printStats :: Stats -> IO ()
+printStats s = do
+    putStr "true positives = "
+    print $ tp s
+    putStr "false positives = "
+    print $ fp s
+    putStr "false negatives = "
+    print $ fn s
+    putStr "precision = "
+    print $ precision s
+    putStr "recall = "
+    print $ recall s
+    putStr "f-measure = "
+    print $ fmeasure s
+
 main = do
-    [root] <- getArgs
-    xs <- collect (isSuffixOf "ann_named.xml") root
-    forM_ xs $ \path -> do
-        par <- map followPtrs <$> parseNamed path
-        forM_ par $ \sent -> do
-            print sent
-            print ">=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>"
+    [goldRoot, otherRoot] <- getArgs
+    goldPaths <- sort <$> collect (isSuffixOf "ann_named.xml") goldRoot
+    otherPahts <- sort <$> collect (isSuffixOf "ann_named.xml") otherRoot
+
+    forM_ (zip goldPaths otherPahts) $ \(goldPath, otherPath) -> do
+        goldData  <- parseNamed goldPath
+        otherData <- parseNamed otherPath
+        printStats $ stats goldData otherData
