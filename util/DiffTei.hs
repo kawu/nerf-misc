@@ -3,7 +3,8 @@
 -- uniquely identifies document stored in this directory.
 
 import Data.List (isSuffixOf, sort)
-import Control.Monad ((>=>), filterM, forM_)
+import Data.Function (on)
+import Control.Monad ((>=>), filterM, forM)
 import Control.Applicative ((<$>))
 import System.FilePath (combine, takeDirectory, takeBaseName)
 import System.Directory
@@ -47,11 +48,20 @@ data Ne = Ne
     , neType    :: String
     , neSubType :: Maybe String
     , nePtrs    :: [Ptr] }
-    deriving (Eq, Ord, Show)
+    deriving (Show)
 type ID = String
 data Ptr = In String
          | Out String
          deriving (Eq, Ord, Show)
+
+neCore :: Ne -> (String, Maybe String, [Ptr])
+neCore = (,,) <$> neType <*> neSubType <*> sort.nePtrs
+
+instance Eq Ne where
+    (==) = (==) `on` neCore
+
+instance Ord Ne where
+    compare = compare `on` neCore
 
 namedP :: XmlParser String [NeSent]
 namedP = true //> namedSentP
@@ -180,10 +190,18 @@ main = do
     let otherMap = M.fromList [(getBase x, x) | x <- otherPaths]
     let keys = S.toList $ M.keysSet goldMap `S.intersection` M.keysSet otherMap
 
-    forM_ keys $ \key -> do
-        print key
+    statList <- forM keys $ \key -> do
+        putStrLn key
         let goldPath  = goldMap M.! key
         let otherPath = otherMap M.! key
         goldData  <- parseNamed goldPath
         otherData <- parseNamed otherPath
-        printStats $ stats goldData otherData
+        let s = stats goldData otherData
+        printStats s
+        return s
+
+    putStrLn ""
+    putStrLn "========================="
+    putStrLn "Overall:"
+    putStrLn ""
+    printStats $ foldl1 add statList
