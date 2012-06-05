@@ -14,6 +14,11 @@ data Closed a = Closed
     { begOn :: I.IntMap [(Node, a)]
     , endOn :: I.IntMap [(Node, a)] }
 
+instance Functor Closed where
+    fmap f (Closed b e) =
+        let g xs = [(n, f x) | (n, x) <- xs]
+        in  Closed (fmap g b) (fmap g e)
+
 empty :: Closed a
 empty = Closed I.empty I.empty
 
