@@ -60,6 +60,10 @@ update strategy nerf phi what = case O.pop (fst what) of
         closed' = if sCut strategy (snd n)
             then C.push n closed
             else closed
+        -- FIXME: is this correct? Shouldn't be:
+        -- closed' = if sCut strategy (snd n)
+        --     then closed
+        --     else C.push n closed
         closed = snd what
 
         open' = O.appendWith dt open $
