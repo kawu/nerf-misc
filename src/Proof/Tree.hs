@@ -3,7 +3,9 @@ module Proof.Tree
 , Tree (..)
 , size
 , Rule (..)
-, RuleSet (..)
+, Nerf (..)
+, NerfDesc (..)
+, nerfFromDesc
 , treeSet
 ) where
 
@@ -16,16 +18,27 @@ import Test.QuickCheck
 nub :: Ord a => [a] -> [a]
 nub = S.toList . S.fromList
 
--- | Arbitrary set of maximum k elements (minimum 1).
+-- | Arbitrary set of maximum kMax elements (minimum 1).
 arbitrarySet :: Ord a => Int -> Gen a -> Gen [a]
-arbitrarySet k gen = nub <$> vectorOf k gen
+arbitrarySet kMax gen = do
+    k <- choose (1, kMax)
+    nub <$> vectorOf k gen
 
 -- | QuickCheck parameters.
-leafMax = 10
-ruleMax = 10
+posMax   = 5
+labelMax = 5
+ruleMax  = 10
+phiMax   = 10
+valMax   = 5.0
 
 -- | Position in a sentence.
 type Pos = Int
+
+arbitraryPos :: Pos -> Gen Pos
+arbitraryPos kMax = choose (1, kMax)
+
+arbitraryValue :: Gen Double
+arbitraryValue = choose (-valMax, valMax)
 
 -- | Binary tree.
 data Tree a = Branch { label  :: a
@@ -41,7 +54,7 @@ size (Branch _ l r) = 1 + size l + size r
 
 instance Arbitrary a => Arbitrary (Tree a) where
     arbitrary = do
-        n <- choose (1, leafMax)
+        n <- arbitraryPos posMax
         arbitraryOn (1, n)
       where
         arbitraryOn (p, q)
@@ -58,56 +71,95 @@ data Rule a = Rule
     , right :: a }
     deriving (Show, Eq, Ord)
 
-instance Arbitrary a => Arbitrary (Rule a) where
-    arbitrary = Rule <$> arbitrary <*> arbitrary <*> arbitrary
+-- | Data representing position of rule application.
+type RulePos = (Pos, Pos, Pos)
 
-newtype RuleSet a = RuleSet
-    { perTop :: M.Map a [Rule a] }
+arbitraryRule :: [a] -> Gen (Rule a)
+arbitraryRule xs =
+    let x = elements xs
+    in  Rule <$> x <*> x<*> x
+
+-- | FIXME: this is incorrect definition!!!!
+arbitraryRulePos :: Pos -> Gen RulePos
+arbitraryRulePos kMax = (,,)
+    <$> arbitraryPos kMax
+    <*> arbitraryPos kMax
+    <*> arbitraryPos kMax
+
+data Nerf a = Nerf
+    { labels  :: [a]
+    , perTop  :: a -> [Rule a]
+    , phiBase :: Pos -> a -> Double
+    , phiRule :: RulePos -> Rule a -> Double }
+
+data NerfDesc a = NerfDesc
+    { labelsD  :: [a]
+    , perTopD  :: M.Map a [Rule a]
+    , phiBaseD :: M.Map (Pos, a) Double
+    , phiRuleD :: M.Map (RulePos, Rule a) Double }
     deriving Show
 
-instance (Ord a, Arbitrary a) => Arbitrary (RuleSet a) where
+nerfFromDesc :: Ord a => NerfDesc a -> Nerf a
+nerfFromDesc = undefined
+
+arbitraryPhiBase :: Pos -> [a] -> Gen (Pos, a)
+arbitraryPhiBase kMax labels =
+    (,) <$> arbitraryPos kMax <*> elements labels 
+
+arbitraryPhiRule :: Pos -> [a] -> Gen (RulePos, Rule a)
+arbitraryPhiRule kMax labels =
+    (,) <$> arbitraryRulePos kMax <*> arbitraryRule labels
+
+instance (Ord a, Arbitrary a) => Arbitrary (NerfDesc a) where
     arbitrary = do
-        k <- choose (0, ruleMax)
-        xs <- arbitrarySet k arbitrary
-        return $ RuleSet $ M.fromListWith (++) [(top x, [x]) | x <- xs]
+        labels <- arbitrarySet labelMax arbitrary
+        rules  <- arbitrarySet ruleMax (arbitraryRule labels)
+        let perTop = M.fromListWith (++) [(top x, [x]) | x <- rules]
+        phiBase <- phiWith labels arbitraryPhiBase
+        phiRule <- phiWith labels arbitraryPhiRule
+        return $ NerfDesc labels perTop phiBase phiRule
+      where
+        phiWith :: Ord b => [a] -> (Pos -> [a] -> Gen b)
+                -> Gen (M.Map b Double)
+        phiWith labels gen = do
+            k <- choose (0, phiMax)
+            xs <- vectorOf k $ gen posMax labels
+            vs <- vectorOf k $ arbitraryValue
+            return $ M.fromList $ zip xs vs
 
 -- | Build recursively a set of trees T using given rules set.
-treeSet :: (Ord a, Memo.HasTrie a) => RuleSet a -> Pos -> Pos -> a -> [Tree a]
-treeSet rules = Memo.memo3 treeSet'
+treeSet :: (Ord a, Memo.HasTrie a) => Nerf a -> Pos -> Pos -> a -> [Tree a]
+treeSet nerf = Memo.memo3 treeSet'
   where
     treeSet' i j x
         | i == j = [Leaf x i]
         | i < j  =
             [ Branch x t_l t_r
-            | r <- justList (x `M.lookup` perTop rules)
+            | r <- perTop nerf x
             , k <- [i..j-1]
-            , t_l <- treeSet rules i     k (left r)
-            , t_r <- treeSet rules (k+1) j (right r) ]
+            , t_l <- treeSet nerf i     k (left r)
+            , t_r <- treeSet nerf (k+1) j (right r) ]
         | otherwise = error "treeSet: i > j"
 
-alpha :: (Ord a, Memo.HasTrie a) => RuleSet a -> Pos -> Pos -> a -> Double
-alpha rules = Memo.memo3 alpha'
-  where
-    alpha' i j x
-        | i == j = phiBase i x
-        | i < j  = maximum
-            [     phiRule (i, k, j) r
-              .*. alpha rules i     k (left r)
-              .*. alpha rules (k+1) j (right r)
-            | r <- justList (x `M.lookup` perTop rules)
-            , k <- [i..j-1] ]
-        | otherwise = error "alpha: i > j"
-
-alpha' :: (Ord a, Memo.HasTrie a) => RuleSet a -> Pos -> Pos -> a -> Double
-alpha' rules i j x = maximum $ map phiTree $ treeSet rules i j x
-
-phiTree = undefined
-phiBase = undefined
-phiRule = undefined
-
-(.*.) :: Num a => a -> a -> a
-(.*.) = (+)
-
-justList :: Maybe [a] -> [a]
-justList (Just xs) = xs
-justList Nothing   = []
+-- alpha :: (Ord a, Memo.HasTrie a) => RuleSet a -> Pos -> Pos -> a -> Double
+-- alpha rules = Memo.memo3 alpha'
+--   where
+--     alpha' i j x
+--         | i == j = phiBase i x
+--         | i < j  = maximum
+--             [     phiRule (i, k, j) r
+--               .*. alpha rules i     k (left r)
+--               .*. alpha rules (k+1) j (right r)
+--             | r <- justList (x `M.lookup` perTop rules)
+--             , k <- [i..j-1] ]
+--         | otherwise = error "alpha: i > j"
+-- 
+-- alpha' :: (Ord a, Memo.HasTrie a) => RuleSet a -> Pos -> Pos -> a -> Double
+-- alpha' rules i j x = maximum $ map phiTree $ treeSet rules i j x
+-- 
+-- phiTree = undefined
+-- phiBase = undefined
+-- phiRule = undefined
+-- 
+-- (.*.) :: Num a => a -> a -> a
+-- (.*.) = (+)
