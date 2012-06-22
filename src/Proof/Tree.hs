@@ -9,6 +9,9 @@ module Proof.Tree
 , NerfDesc (..)
 , nerfFromDesc
 , treeSet
+, alpha
+, alpha'
+, propAlpha
 ) where
 
 import qualified Data.Map as M
@@ -125,9 +128,10 @@ arbitraryRule xs =
     let x = elements xs
     in  Rule <$> x <*> x<*> x
 
--- | FIXME: this is incorrect definition!!!!
 arbitraryRulePos :: Gen RulePos
-arbitraryRulePos = (,,) <$> arbitraryPos <*> arbitraryPos <*> arbitraryPos
+arbitraryRulePos =
+    let triplet = (,,) <$> arbitraryPos <*> arbitraryPos <*> arbitraryPos
+    in  triplet `suchThat` \(i, k, j) -> i <= k && k < j
 
 data Nerf a = Nerf
     { labels  :: [a]
@@ -218,17 +222,15 @@ instance (Ord a, Arbitrary a) => Arbitrary (NerfDesc a) where
 
 -- | Build recursively a set of trees T using given nerf definition.
 treeSet :: (Ord a, Memo.HasTrie a) => Nerf a -> Pos -> Pos -> a -> [Tree a]
-treeSet nerf = Memo.memo3 treeSet'
-  where
-    treeSet' i j x
-        | i == j = [Leaf x i]
-        | i < j  =
-            [ Branch x t_l t_r
-            | r <- perTop nerf x
-            , k <- [i..j-1]
-            , t_l <- treeSet nerf i     k (left r)
-            , t_r <- treeSet nerf (k+1) j (right r) ]
-        | otherwise = error "treeSet: i > j"
+treeSet nerf i j x
+    | i == j = [Leaf x i]
+    | i < j  =
+        [ Branch x t_l t_r
+        | r <- perTop nerf x
+        , k <- [i..j-1]
+        , t_l <- treeSet nerf i     k (left r)
+        , t_r <- treeSet nerf (k+1) j (right r) ]
+    | otherwise = error "treeSet: i > j"
 
 alpha :: (Ord a, Memo.HasTrie a) => Nerf a -> Pos -> Pos -> a -> Maybe Phi
 alpha nerf = Memo.memo3 alpha'
@@ -236,9 +238,9 @@ alpha nerf = Memo.memo3 alpha'
     alpha' i j x
         | i == j = Just $ phiBase nerf i x
         | i < j  = maximumM
-            [ Just (phiRule nerf (i, k, j) r)
-              .?. alpha nerf i     k (left r)
-              .?. alpha nerf (k+1) j (right r)
+            [     alphaNerf i     k (left r)
+              .?. alphaNerf (k+1) j (right r)
+              .?. Just (phiRule nerf (i, k, j) r)
             | r <- perTop nerf x
             , k <- [i..j-1] ]
         | otherwise = error "alpha: i > j"
@@ -246,6 +248,7 @@ alpha nerf = Memo.memo3 alpha'
     maximumM :: Ord a => [Maybe a] -> Maybe a
     maximumM [] = Nothing
     maximumM xs = maximum xs
+    alphaNerf = alpha nerf  -- ^ No memoization without this trick
 
 alpha' :: (Ord a, Memo.HasTrie a) => Nerf a -> Pos -> Pos -> a -> Maybe Phi
 alpha' nerf i j x = case null trees of
@@ -276,9 +279,18 @@ instance (Ord a, Arbitrary a) => Arbitrary (TestPoint a) where
 
 propAlpha :: (Show a, Ord a, Memo.HasTrie a) => TestPoint a -> Bool
 propAlpha test =
-    trace (show (y, y')) (y == y')
+    trace (show (y, y')) (y ~== y')
   where
     y  = alpha  nerf i j x
     y' = alpha' nerf i j x
     nerf = nerfFromDesc $ testNerf test
     (i, j, x) = testComp test
+
+(~==) :: RealFrac a => Maybe a -> Maybe a -> Bool
+Just x ~== Just y =
+    x == y || (1 - eps <= z && z <= 1 + eps)
+  where
+    z = x / y
+    eps = 1.0e-10
+Nothing ~== Nothing = True
+_ ~== _ = False
