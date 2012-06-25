@@ -39,11 +39,12 @@ arbitrarySet kMax gen = do
     nub <$> vectorOf k gen
 
 -- | QuickCheck parameters.
-posMax   = 6
-labelMax = 4
-ruleMax  = 10
-phiMax   = 10.0
-descMax  = 100
+posMax    = 6
+labelMax  = 4
+ruleMax   = 10
+phiMax    = 10.0
+descMax   = 100
+activeMax = 100
 
 -- | Position in a sentence (positive).
 type Pos = Int
@@ -247,26 +248,50 @@ instance (Ord a, Arbitrary a) => Arbitrary (NerfDesc a) where
             vs <- vectorOf k $ arbitraryValue
             return $ M.fromList $ zip xs vs
 
+-- | Strategy can be used to reduce the number of trees. Set of trees itself
+-- is defined on top of strategy (see treeSet function). Strategy strat should
+-- be interpreted as follows: TODO
+type Active a = Pos -> Pos -> a -> Bool
+
+newtype ActiveDesc a = ActiveDesc
+    { activeSet :: S.Set (Pos, Pos, a) }
+    deriving Show
+
+activeFromDesc :: Ord a => ActiveDesc a -> Active a
+activeFromDesc ActiveDesc{..} i j x = (i, j, x) `S.member` activeSet
+
+arbitraryActive :: Ord a => [a] -> Gen (ActiveDesc a)
+arbitraryActive xs = ActiveDesc . S.fromList <$> do
+    k <- choose (0, activeMax)
+    vectorOf k activeElem
+  where
+    activeElem = do
+        (i, j) <- arbitraryRan
+        x <- elements xs
+        return (i, j, x)
+
 -- | Build recursively a set of trees T using given nerf definition.
-treeSet :: Nerf a -> Pos -> Pos -> a -> [Tree a]
-treeSet nerf i j x
+treeSet :: Active a -> Nerf a -> Pos -> Pos -> a -> [Tree a]
+treeSet active nerf i j x
     | i == j = [Leaf x i]
     | i < j  =
         [ Branch x t_l t_r
         | r <- perTop nerf x
         , k <- [i..j-1]
-        , t_l <- treeSet nerf i     k (left r)
-        , t_r <- treeSet nerf (k+1) j (right r) ]
+        , active i     k (left r)
+        , active (k+1) j (right r)
+        , t_l <- treeSet active nerf i     k (left r)
+        , t_r <- treeSet active nerf (k+1) j (right r) ]
     | otherwise = error "treeSet: i > j"
 
--- | Find subtree with a given span and root value.
+-- | Find subtree with a given span.
 subTree :: Eq a => Pos -> Pos -> Tree a -> Maybe (Tree a) 
 subTree i j tree = unTreeP <$> subTreeP i j (mkTreeP tree)
 
 -- | Find subtree with a given span.
 subTreeP :: Eq a => Pos -> Pos -> TreeP a -> Maybe (TreeP a)
 subTreeP i j tree
-    | (p, q) == (i, j) = Just tree
+    | p == i && j == q = Just tree
     | p <= i && j <= q =
         subTreeP i j (leftP tree) <|>
         subTreeP i j (rightP tree)
@@ -274,8 +299,9 @@ subTreeP i j tree
   where
     (p, q) = spanP tree
 
-alpha :: (Ord a, Memo.HasTrie a) => Nerf a -> Pos -> Pos -> a -> Maybe Phi
-alpha nerf = alphaM
+alpha :: (Ord a, Memo.HasTrie a) => Active a -> Nerf a
+      -> Pos -> Pos -> a -> Maybe Phi
+alpha active nerf = alphaM
   where
     alphaM = Memo.memo3 alpha'
     alpha' i j x
@@ -285,17 +311,19 @@ alpha nerf = alphaM
               .?. alphaM (k+1) j (right r)
               .?. Just (phiRule nerf (i, k, j) r)
             | r <- perTop nerf x
-            , k <- [i..j-1] ]
+            , k <- [i..j-1]
+            , active i     k (left r)
+            , active (k+1) j (right r) ]
         | otherwise = error "alpha: i > j"
     x .?. y = (.*.) <$> x <*> y
 
-alpha' :: Ord a => Nerf a -> Pos -> Pos -> a -> Maybe Phi
-alpha' nerf i j x = catchNull maximum 
-    [phiTree nerf t | t <- treeSet nerf i j x]
+alpha' :: Ord a => Active a -> Nerf a -> Pos -> Pos -> a -> Maybe Phi
+alpha' active nerf i j x = catchNull maximum 
+    [phiTree nerf t | t <- treeSet active nerf i j x]
 
-beta :: (Ord a, Memo.HasTrie a) => Nerf a
+beta :: (Ord a, Memo.HasTrie a) => Active a -> Nerf a
      -> Pos -> Pos -> Pos -> a -> Maybe Phi
-beta nerf n i j x = case alphaM i j x of
+beta active nerf n i j x = case alphaM i j x of
     Just _  -> betaM i j x
     Nothing -> Nothing
   where
@@ -311,22 +339,26 @@ beta nerf n i j x = case alphaM i j x of
                   .?. betaM  k j     (top r) 
                   .?. Just (phiRule nerf (k, i-1, j) r)
                 | r <- perRight nerf x
-                , k <- [1 .. i-1] ]
+                , k <- [1 .. i-1]
+                , active k (i-1) (left r)
+                , active i j     x ]
             , maximumM
                 [     alphaM (j+1) k (right r)
                   .?. betaM  i     k (top r)
                   .?. Just (phiRule nerf (i, j, k) r)
                 | r <- perLeft nerf x
-                , k <- [j+1 .. n] ] ]
+                , k <- [j+1 .. n]
+                , active i     j x
+                , active (j+1) k (right r) ] ]
         | otherwise = error "beta: bad arguments"
     x .?. y = (.*.) <$> x <*> y
-    alphaM = alpha nerf
+    alphaM = alpha active nerf
 
-beta' :: Ord a => Nerf a -> Pos -> Pos -> Pos -> a -> Maybe Phi
-beta' nerf n i j x = catchNull maximum
+beta' :: Ord a => Active a -> Nerf a -> Pos -> Pos -> Pos -> a -> Maybe Phi
+beta' active nerf n i j x = catchNull maximum
     [ phiTree nerf t ./. phiTree nerf t'
     | y  <- labels nerf
-    , t  <- treeSet nerf 1 n y
+    , t  <- treeSet active nerf 1 n y
     , t' <- maybeToList $ subTree i j t
     , label t' == x ]
 
@@ -342,9 +374,10 @@ maximumM xs = maximum xs
 ------------------------------------------------------------------------------
 
 data TestPoint a = TestPoint
-    { testNerf :: NerfDesc a
-    , testSize :: Pos
-    , testComp :: (Pos, Pos, a) }
+    { testNerf   :: NerfDesc a
+    , testActive :: ActiveDesc a
+    , testSize   :: Pos
+    , testComp   :: (Pos, Pos, a) }
 
 instance Show a => Show (TestPoint a) where
     show TestPoint{..} = execWriter $ do
@@ -358,28 +391,31 @@ instance Show a => Show (TestPoint a) where
 instance (Ord a, Arbitrary a) => Arbitrary (TestPoint a) where
     arbitrary = do
         nerfDesc <- arbitrary
+        active <- arbitraryActive $ labelsD nerfDesc
         n <- arbitraryPos
         (i, j) <- arbitraryRan `suchThat` \(i, j) -> j <= n
         x <- elements $ labelsD nerfDesc
-        return $ TestPoint nerfDesc n (i, j, x)
+        return $ TestPoint nerfDesc active n (i, j, x)
 
 propAlpha :: (Show a, Ord a, Memo.HasTrie a) => TestPoint a -> Bool
 propAlpha test =
     trace (show (y, y')) (y ~== y')
   where
-    y  = alpha  nerf i j x
-    y' = alpha' nerf i j x
+    y  = alpha  active nerf i j x
+    y' = alpha' active nerf i j x
     nerf = nerfFromDesc $ testNerf test
+    active = activeFromDesc $ testActive test
     (i, j, x) = testComp test
 
 propBeta :: (Show a, Ord a, Memo.HasTrie a) => TestPoint a -> Bool
 propBeta test =
     trace (show (y, y')) (y ~== y')
   where
-    y  = beta  nerf n i j x
-    y' = beta' nerf n i j x
+    y  = beta  active nerf n i j x
+    y' = beta' active nerf n i j x
     n  = testSize test
     nerf = nerfFromDesc $ testNerf test
+    active = activeFromDesc $ testActive test
     (i, j, x) = testComp test
 
 (~==) :: RealFrac a => Maybe a -> Maybe a -> Bool
