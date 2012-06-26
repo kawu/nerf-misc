@@ -29,12 +29,14 @@ import qualified Data.Map as M
 import qualified Data.Text as T
 import qualified Data.Char as C
 import qualified Data.List as List
+import qualified Data.Vector.Unboxed as V
 import           Data.Maybe (maybeToList)
 import           Control.Applicative ((<$>))
 import           Numeric (showFFloat)
 import           Data.ListLike.Text
 
-import Data.Adict
+import Data.Adict hiding (levenSearch)
+import Data.Adict.Fast
 
 import qualified Text.Levels as L
 
@@ -154,7 +156,7 @@ searchDict dict rule sent k = do
 searchAdict :: L.Segm s => Double -> Int -> Adict Char [T.Text]
             -> ObserRule s -> ObserRule s
 searchAdict th digits adict rule sent k = fmap glue $ nub $ do
-    x <- rule sent k
+    x <- V.fromList . T.unpack <$> rule sent k
     (entry, w) <- levenSearch cost th x adict
     y <- info entry
     return (y, w)
@@ -168,8 +170,8 @@ cost :: Cost Char
 cost =
     Cost insert delete subst
   where
-    insert (k, _) = posMod (fromIntegral k)
-    delete (k, _) = posMod (fromIntegral k)
+    insert _ (k, _) = posMod (fromIntegral k)
+    delete (k, _) _ = posMod (fromIntegral k)
     subst (k, x) (m, y)
         | x  == y               = 0
         | x' == y'              = 0.01
@@ -177,5 +179,5 @@ cost =
       where
         x' = C.toLower x
         y' = C.toLower y
-    posMod k = (k+1) ** (-1)
+    posMod k = k ** (-1)
     avg x y = (fromIntegral x + fromIntegral y) / 2.0
