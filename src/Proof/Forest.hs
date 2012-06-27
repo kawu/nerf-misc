@@ -4,7 +4,9 @@ module Proof.Forest
 ) where
 
 import qualified Data.MemoTrie as Memo
+import Prelude hiding (sum, product)
 
+import Proof.LogMath
 import Proof.Tree
 
 -- | Invariant: trees in a forest are preserved in ascending order
@@ -23,5 +25,6 @@ forestSet active nerf i j = map reverse $ recSet i j
             , f <- recSet i (k-1)
             , t <- treeSetSpan active nerf k j ]
 
--- phiForest :: Nerf a -> Forest a -> Phi
--- phiForest nerf f = sum [phiTree nerf t | t <- f]
+-- | Potential of a given forest.
+phiForest :: Nerf a -> Forest a -> Phi
+phiForest nerf f = product [phiTree nerf t | t <- f]
