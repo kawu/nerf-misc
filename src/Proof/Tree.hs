@@ -8,20 +8,30 @@ module Proof.Tree
 , Nerf (..)
 , NerfDesc (..)
 , nerfFromDesc
+, Active
+, activeFromDesc
 , treeSet
+, treeSetSpan
+, phiTree
+, Alpha (..)
+, mkAlphaM
+, alphaMax
+, maxPhi
+, maxPhi'
 , alpha
-, alpha'
 , beta
-, beta'
+, maxPhiR
+, maxPhiR'
 , propAlpha
 , propBeta
+, TestPoint (..)
 ) where
 
 import qualified Data.Map as M
 import qualified Data.Set as S
 import qualified Data.MemoTrie as Memo
 import Data.List (intercalate)
-import Data.Maybe (maybeToList)
+import Data.Maybe (maybeToList, catMaybes)
 import Control.Monad (forM_)
 import Control.Monad.Writer (execWriter, tell)
 import Control.Applicative ((<$>), (<*>), (<|>))
@@ -63,8 +73,8 @@ type Phi = Double
 arbitraryPos :: Gen Pos
 arbitraryPos = choose (1, posMax)
 
-arbitraryRan :: Gen (Pos, Pos)
-arbitraryRan =
+arbitrarySpan :: Gen (Pos, Pos)
+arbitrarySpan =
     let pair = (,) <$> arbitraryPos <*> arbitraryPos
     in  pair `suchThat` \(i, j) -> i <= j
 
@@ -78,7 +88,7 @@ data Tree a
              , rightT :: (Tree a) }
     | Leaf   { label  :: a
              , pos    :: Pos }
-    deriving Show
+    deriving (Show, Eq, Ord)
 
 size :: Tree a -> Int
 size Leaf{} = 1
@@ -266,7 +276,7 @@ arbitraryActive xs = ActiveDesc . S.fromList <$> do
     vectorOf k activeElem
   where
     activeElem = do
-        (i, j) <- arbitraryRan
+        (i, j) <- arbitrarySpan
         x <- elements xs
         return (i, j, x)
 
@@ -284,6 +294,12 @@ treeSet active nerf i j x
         , t_r <- treeSet active nerf (k+1) j (right r) ]
     | otherwise = error "treeSet: i > j"
 
+-- | Tree set per given span.
+treeSetSpan :: Active a -> Nerf a -> Pos -> Pos -> [Tree a]
+treeSetSpan active nerf i j = concat
+    [ treeSet active nerf i j x
+    | x <- labels nerf ]
+
 -- | Find subtree with a given span.
 subTree :: Eq a => Pos -> Pos -> Tree a -> Maybe (Tree a) 
 subTree i j tree = unTreeP <$> subTreeP i j (mkTreeP tree)
@@ -299,66 +315,117 @@ subTreeP i j tree
   where
     (p, q) = spanP tree
 
-alpha :: (Ord a, Memo.HasTrie a) => Active a -> Nerf a
-      -> Pos -> Pos -> a -> Maybe Phi
-alpha active nerf = alphaM
+-- | Operation definitions for alpha (and beta) computations. 
+-- With Alpha you can represent algorithms like sum-product
+-- or maxarg (finding the most probable tree structure).
+-- We assume, that argument of aconcat is non-empty.
+data Alpha a = Alpha
+    { alphaRoot   :: a  -- ^ For beta computation
+    , alphaBase   :: Phi -> a
+    , alphaRule   :: a -> a -> Phi -> a
+    , alphaConcat :: [a] -> a }
+
+-- | Alpha computations lifted to Maybe setting.
+data AlphaM a = AlphaM
+    { alphaRootM    :: Maybe a
+    , alphaBaseM    :: Phi -> Maybe a
+    , alphaRuleM    :: Maybe a -> Maybe a -> Phi -> Maybe a
+    , alphaConcatM  :: [Maybe a] -> Maybe a }
+
+mkAlphaM :: Alpha a -> AlphaM a
+mkAlphaM Alpha{..} = AlphaM root base rule concat
+  where
+    root = Just $ alphaRoot
+    base = Just . alphaBase
+    rule mx my phi = alphaRule <$> mx <*> my <*> Just phi
+    concat xs
+        | null ys   = Nothing
+        | otherwise = Just . alphaConcat $ ys
+      where 
+        ys = catMaybes xs
+
+-- | Probability of the most probable tree. We assume, that phi
+-- values are represented in logarithmic scale.
+alphaMax :: AlphaM Phi
+alphaMax =
+    let rule x y z = x .*. y .*. z
+    in  mkAlphaM $ Alpha 0 id rule maximum
+
+alpha :: (Ord a, Memo.HasTrie a)
+      => AlphaM b -> Active a -> Nerf a
+      -> Pos -> Pos -> a -> Maybe b
+alpha AlphaM{..} active Nerf{..} = alphaM
   where
     alphaM = Memo.memo3 alpha'
     alpha' i j x
-        | i == j = Just $ phiBase nerf i x
-        | i < j  = maximumM
-            [     alphaM i     k (left r)
-              .?. alphaM (k+1) j (right r)
-              .?. Just (phiRule nerf (i, k, j) r)
-            | r <- perTop nerf x
+        | i == j = alphaBaseM $ phiBase i x
+        | i < j  = alphaConcatM
+            [ alphaRuleM
+                (alphaM i     k (left r))
+                (alphaM (k+1) j (right r))
+                (phiRule (i, k, j) r)
+            | r <- perTop x
             , k <- [i..j-1]
             , active i     k (left r)
             , active (k+1) j (right r) ]
         | otherwise = error "alpha: i > j"
-    x .?. y = (.*.) <$> x <*> y
 
-alpha' :: Ord a => Active a -> Nerf a -> Pos -> Pos -> a -> Maybe Phi
-alpha' active nerf i j x = catchNull maximum 
+maxPhi :: (Ord a, Memo.HasTrie a) => Active a -> Nerf a
+       -> Pos -> Pos -> a -> Maybe Phi
+maxPhi = alpha alphaMax
+
+maxPhi' :: Ord a => Active a -> Nerf a -> Pos -> Pos -> a -> Maybe Phi
+maxPhi' active nerf i j x = catchNull maximum 
     [phiTree nerf t | t <- treeSet active nerf i j x]
 
-beta :: (Ord a, Memo.HasTrie a) => Active a -> Nerf a
-     -> Pos -> Pos -> Pos -> a -> Maybe Phi
-beta active nerf n i j x = case alphaM i j x of
+beta :: (Ord a, Memo.HasTrie a)
+     => AlphaM b -> Active a -> Nerf a -> Pos -> Pos
+     -> Pos -> Pos -> a -> Maybe b
+beta comp@AlphaM{..} active nerf@Nerf{..} p q i j x =
+  case alphaM i j x of
     Just _  -> betaM i j x
     Nothing -> Nothing
   where
     betaM = Memo.memo3 beta'
     beta' i j x
-        | i == 1 && j == n =
-            case alphaM i j x of
-                Just _  -> Just 0.0     -- log 1.0
+        | i == p && j == q =
+            case alphaM p q x of
+                Just _  -> alphaRootM
                 Nothing -> Nothing
-        | i >= 1 && j <= n && i <= j = maximumM
-            [ maximumM
-                [     alphaM k (i-1) (left r)
-                  .?. betaM  k j     (top r) 
-                  .?. Just (phiRule nerf (k, i-1, j) r)
-                | r <- perRight nerf x
-                , k <- [1 .. i-1]
+        | i >= p && j <= q && i <= j = alphaConcatM
+            [ alphaConcatM
+                [ alphaRuleM
+                    (alphaM k (i-1) (left r))
+                    (betaM  k j     (top r))
+                    (phiRule (k, i-1, j) r)
+                | r <- perRight x
+                , k <- [p .. i-1]
                 , active k (i-1) (left r)
                 , active i j     x ]
-            , maximumM
-                [     alphaM (j+1) k (right r)
-                  .?. betaM  i     k (top r)
-                  .?. Just (phiRule nerf (i, j, k) r)
-                | r <- perLeft nerf x
-                , k <- [j+1 .. n]
+            , alphaConcatM
+                [ alphaRuleM  
+                    (alphaM (j+1) k (right r))
+                    (betaM  i     k (top r))
+                    (phiRule (i, j, k) r)
+                | r <- perLeft x
+                , k <- [j+1 .. q]
                 , active i     j x
                 , active (j+1) k (right r) ] ]
         | otherwise = error "beta: bad arguments"
-    x .?. y = (.*.) <$> x <*> y
-    alphaM = alpha active nerf
+    alphaM = alpha comp active nerf
 
-beta' :: Ord a => Active a -> Nerf a -> Pos -> Pos -> Pos -> a -> Maybe Phi
-beta' active nerf n i j x = catchNull maximum
+maxPhiR :: (Ord a, Memo.HasTrie a)
+        => Active a -> Nerf a -> Pos -> Pos
+        -> Pos -> Pos -> a -> Maybe Phi
+maxPhiR = beta alphaMax
+
+maxPhiR' :: Ord a
+         => Active a -> Nerf a -> Pos -> Pos
+         -> Pos -> Pos -> a -> Maybe Phi
+maxPhiR' active nerf p q i j x = catchNull maximum
     [ phiTree nerf t ./. phiTree nerf t'
     | y  <- labels nerf
-    , t  <- treeSet active nerf 1 n y
+    , t  <- treeSet active nerf p q y
     , t' <- maybeToList $ subTree i j t
     , label t' == x ]
 
@@ -367,16 +434,12 @@ catchNull f xs
     | null xs   = Nothing
     | otherwise = Just $ f xs
 
-maximumM :: Ord a => [Maybe a] -> Maybe a
-maximumM [] = Nothing
-maximumM xs = maximum xs
-
 ------------------------------------------------------------------------------
 
 data TestPoint a = TestPoint
     { testNerf   :: NerfDesc a
     , testActive :: ActiveDesc a
-    , testSize   :: Pos
+    , testSpan   :: (Pos, Pos)
     , testComp   :: (Pos, Pos, a) }
 
 instance Show a => Show (TestPoint a) where
@@ -384,7 +447,7 @@ instance Show a => Show (TestPoint a) where
         tell "=== nerf ===\n"
         tell $ show testNerf 
         tell "\n=== test size ==\n"
-        tell $ show testSize
+        tell $ show testSpan
         tell "\n=== computation ==\n"
         tell $ show testComp
 
@@ -392,17 +455,17 @@ instance (Ord a, Arbitrary a) => Arbitrary (TestPoint a) where
     arbitrary = do
         nerfDesc <- arbitrary
         active <- arbitraryActive $ labelsD nerfDesc
-        n <- arbitraryPos
-        (i, j) <- arbitraryRan `suchThat` \(i, j) -> j <= n
+        (p, q) <- arbitrarySpan
+        (i, j) <- arbitrarySpan `suchThat` \(i, j) -> p <= i && j <= q
         x <- elements $ labelsD nerfDesc
-        return $ TestPoint nerfDesc active n (i, j, x)
+        return $ TestPoint nerfDesc active (p, q) (i, j, x)
 
 propAlpha :: (Show a, Ord a, Memo.HasTrie a) => TestPoint a -> Bool
 propAlpha test =
     trace (show (y, y')) (y ~== y')
   where
-    y  = alpha  active nerf i j x
-    y' = alpha' active nerf i j x
+    y  = maxPhi  active nerf i j x
+    y' = maxPhi' active nerf i j x
     nerf = nerfFromDesc $ testNerf test
     active = activeFromDesc $ testActive test
     (i, j, x) = testComp test
@@ -411,9 +474,9 @@ propBeta :: (Show a, Ord a, Memo.HasTrie a) => TestPoint a -> Bool
 propBeta test =
     trace (show (y, y')) (y ~== y')
   where
-    y  = beta  active nerf n i j x
-    y' = beta' active nerf n i j x
-    n  = testSize test
+    y  = maxPhiR  active nerf p q i j x
+    y' = maxPhiR' active nerf p q i j x
+    (p, q) = testSpan test
     nerf = nerfFromDesc $ testNerf test
     active = activeFromDesc $ testActive test
     (i, j, x) = testComp test
