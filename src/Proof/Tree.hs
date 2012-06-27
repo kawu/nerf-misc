@@ -16,17 +16,22 @@ module Proof.Tree
 , Alpha (..)
 , mkAlphaM
 , alphaMax
+, alphaSum
 , maxPhi
 , maxPhi'
+, sumPhi
+, sumPhi'
 , alpha
 , beta
 , maxPhiR
 , maxPhiR'
-, propAlpha
-, propBeta
+, propMaxPhi
+, propMaxPhiR
+, propSumPhi
 , TestPoint (..)
 ) where
 
+import Prelude hiding (sum, product)
 import qualified Data.Map as M
 import qualified Data.Set as S
 import qualified Data.MemoTrie as Memo
@@ -38,6 +43,8 @@ import Control.Applicative ((<$>), (<*>), (<|>))
 import Test.QuickCheck hiding (label, labels)
 
 import Debug.Trace (trace)
+
+import Proof.LogMath
 
 nub :: Ord a => [a] -> [a]
 nub = S.toList . S.fromList
@@ -61,14 +68,6 @@ type Pos = Int
 
 -- | Value of potential (in logarithmic scale).
 type Phi = Double
-
--- | Multiplication in logarithmic scale.
-(.*.) :: Phi -> Phi -> Phi
-(.*.) = (+)
-
--- | Division in logarithmic scale.
-(./.) :: Phi -> Phi -> Phi
-(./.) = (-)
 
 arbitraryPos :: Gen Pos
 arbitraryPos = choose (1, posMax)
@@ -349,7 +348,13 @@ mkAlphaM Alpha{..} = AlphaM root base rule concat
 alphaMax :: AlphaM Phi
 alphaMax =
     let rule x y z = x .*. y .*. z
-    in  mkAlphaM $ Alpha 0 id rule maximum
+    in  mkAlphaM $ Alpha one id rule maximum
+
+-- | Sum of all tree probabilities.
+alphaSum :: AlphaM Phi
+alphaSum =
+    let rule x y z = x .*. y .*. z
+    in  mkAlphaM $ Alpha one id rule sum
 
 alpha :: (Ord a, Memo.HasTrie a)
       => AlphaM b -> Active a -> Nerf a
@@ -370,14 +375,25 @@ alpha AlphaM{..} active Nerf{..} = alphaM
             , active (k+1) j (right r) ]
         | otherwise = error "alpha: i > j"
 
+-- | Find tree with a maximum potential.
 maxPhi :: (Ord a, Memo.HasTrie a) => Active a -> Nerf a
        -> Pos -> Pos -> a -> Maybe Phi
 maxPhi = alpha alphaMax
 
+-- | Find tree with a maximum potential -- definition.
 maxPhi' :: Ord a => Active a -> Nerf a -> Pos -> Pos -> a -> Maybe Phi
 maxPhi' active nerf i j x = catchNull maximum 
     [phiTree nerf t | t <- treeSet active nerf i j x]
 
+sumPhi :: (Ord a, Memo.HasTrie a) => Active a -> Nerf a
+       -> Pos -> Pos -> a -> Maybe Phi
+sumPhi = alpha alphaSum
+
+sumPhi' :: Ord a => Active a -> Nerf a -> Pos -> Pos -> a -> Maybe Phi
+sumPhi' active nerf i j x = catchNull sum 
+    [phiTree nerf t | t <- treeSet active nerf i j x]
+
+-- | Beta computation.
 beta :: (Ord a, Memo.HasTrie a)
      => AlphaM b -> Active a -> Nerf a -> Pos -> Pos
      -> Pos -> Pos -> a -> Maybe b
@@ -460,8 +476,8 @@ instance (Ord a, Arbitrary a) => Arbitrary (TestPoint a) where
         x <- elements $ labelsD nerfDesc
         return $ TestPoint nerfDesc active (p, q) (i, j, x)
 
-propAlpha :: (Show a, Ord a, Memo.HasTrie a) => TestPoint a -> Bool
-propAlpha test =
+propMaxPhi :: (Show a, Ord a, Memo.HasTrie a) => TestPoint a -> Bool
+propMaxPhi test =
     trace (show (y, y')) (y ~== y')
   where
     y  = maxPhi  active nerf i j x
@@ -470,8 +486,18 @@ propAlpha test =
     active = activeFromDesc $ testActive test
     (i, j, x) = testComp test
 
-propBeta :: (Show a, Ord a, Memo.HasTrie a) => TestPoint a -> Bool
-propBeta test =
+propSumPhi :: (Show a, Ord a, Memo.HasTrie a) => TestPoint a -> Bool
+propSumPhi test =
+    trace (show (y, y')) (y ~== y')
+  where
+    y  = sumPhi  active nerf i j x
+    y' = sumPhi' active nerf i j x
+    nerf = nerfFromDesc $ testNerf test
+    active = activeFromDesc $ testActive test
+    (i, j, x) = testComp test
+
+propMaxPhiR :: (Show a, Ord a, Memo.HasTrie a) => TestPoint a -> Bool
+propMaxPhiR test =
     trace (show (y, y')) (y ~== y')
   where
     y  = maxPhiR  active nerf p q i j x
