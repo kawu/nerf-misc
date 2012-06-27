@@ -27,20 +27,20 @@ import qualified Observation.Selection as Ob
 
 import Data.Adict
 
--- | FIXME: These definitions should be in one place!
--- | Definitions for casual Data.Map dictionary.
-type Orth   = T.Text
-type NeType = T.Text
-type NeDict = M.Map Orth [NeType]
-
-decodeDict :: FilePath -> IO NeDict
-decodeDict = B.decodeFile
--- FIXME-END.
-
--- type NeDict = Adict Char [T.Text]
+-- -- | FIXME: These definitions should be in one place!
+-- -- | Definitions for casual Data.Map dictionary.
+-- type Orth   = T.Text
+-- type NeType = T.Text
+-- type NeDict = M.Map Orth [NeType]
 -- 
 -- decodeDict :: FilePath -> IO NeDict
 -- decodeDict = B.decodeFile
+-- -- FIXME-END.
+
+type NeDict = Adict Char [T.Text]
+
+decodeDict :: FilePath -> IO NeDict
+decodeDict = B.decodeFile
 
 -- schema = [lemma 0, substring 0]
 -- schema = [orth 0, lowerLemma 0, lowerOrth (-1), lowerOrth 1, substring 0]
@@ -72,10 +72,10 @@ suffixes k = Ob.group $ map ($ Ob.orth k)
 shape k = Ob.shape $ Ob.orth k
 packedShape k = Ob.packedShape $ Ob.orth k
 
--- -- | Joined with information, if it is a beginning of a sentence. 
--- searchDict dict k = Ob.join "-"
---     (Ob.beg k) (Ob.searchAdict 0.5 1 dict $ Ob.orth k)
-searchDict dict k = Ob.searchDict dict $ Ob.orth k
+-- | Joined with information, if it is a beginning of a sentence. 
+searchDict dict k = Ob.join "-"
+    (Ob.beg k) (Ob.searchAdict 0.1 1 dict $ Ob.orth k)
+-- searchDict dict k = Ob.searchDict dict $ Ob.orth k
 
 -- substring k = Ob.group $ map ($ orth k)
 --     [ Ob.substrings 1 

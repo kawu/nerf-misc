@@ -34,11 +34,20 @@ import           Data.Maybe (maybeToList)
 import           Control.Applicative ((<$>))
 import           Numeric (showFFloat)
 import           Data.ListLike.Text
+import           Data.ListLike.Vector
 
 import Data.Adict hiding (levenSearch)
-import Data.Adict.Fast
+-- import Data.Adict (levenSearch)
+import Data.Adict.Fast (levenSearch)
 
 import qualified Text.Levels as L
+
+import System.IO.Unsafe (unsafePerformIO)
+
+trace :: String -> a -> a
+trace desc x = unsafePerformIO $ do
+    putStrLn desc
+    return x
 
 -- | Observation value.
 type Obser = T.Text
@@ -157,27 +166,37 @@ searchAdict :: L.Segm s => Double -> Int -> Adict Char [T.Text]
             -> ObserRule s -> ObserRule s
 searchAdict th digits adict rule sent k = fmap glue $ nub $ do
     x <- V.fromList . T.unpack <$> rule sent k
-    (entry, w) <- levenSearch cost th x adict
+    trace (V.toList x) (return ())
+    trace ("  -> " ++ show (Data.Adict.lookup (V.toList x) adict)) (return ())
+    let n = V.length x
+    (entry, w) <- levenSearch (cost n) (threshold th n) x adict
     y <- info entry
-    return (y, w)
+    trace ("  => " ++ word entry ++ " (" ++ T.unpack y
+           ++ ", " ++ show w ++ ")") $
+        return (y, w)
   where
     nub = M.toList . M.fromListWith min
     glue (y, w) = y `T.append` T.pack (roundFloat w)
     roundFloat x = take (digits+2) $ showFFloat (Just digits) x ""
+    threshold base n
+        | n > 15    = base * 15
+        | otherwise = base * fromIntegral n
 
 -- | Cost function for approximate dictionary searching.
-cost :: Cost Char
-cost =
+cost :: Int -> Cost Char
+cost n =
     Cost insert delete subst
   where
-    insert _ (k, _) = posMod (fromIntegral k)
-    delete (k, _) _ = posMod (fromIntegral k)
+    insert k (_, _) = posMod k
+    delete (k, x) _
+        | C.isPunctuation x = 0.5 * posMod k
+        | otherwise         = posMod k
     subst (k, x) (m, y)
-        | x  == y               = 0
-        | x' == y'              = 0.01
-        | otherwise             = posMod (avg k m)
-      where
-        x' = C.toLower x
-        y' = C.toLower y
-    posMod k = k ** (-1)
-    avg x y = (fromIntegral x + fromIntegral y) / 2.0
+        | x == y            = 0
+        | C.toLower x == y  = 0.5 * posMod k
+        | otherwise         = posMod k
+    posMod k
+        | k <= n_2  = 1
+        | otherwise = (n - k + 1) ./. (n - n_2 + 1)
+    x ./. y = fromIntegral x / fromIntegral y
+    n_2 = (n + 1) `div` 2
