@@ -2,8 +2,12 @@
 
 module Proof.Tree
 ( Pos
+, Phi
 , Tree (..)
 , size
+, beg
+, end
+, span
 , Rule (..)
 , Nerf (..)
 , NerfDesc (..)
@@ -14,6 +18,8 @@ module Proof.Tree
 , treeSetSpan
 , phiTree
 , Alpha (..)
+, alpha
+, beta
 , mkAlphaM
 , alphaMax
 , alphaSum
@@ -21,22 +27,23 @@ module Proof.Tree
 , maxPhi'
 , sumPhi
 , sumPhi'
-, alpha
-, beta
+, sumPhiSpan
+, probTree
 , maxPhiR
 , maxPhiR'
 , propMaxPhi
 , propMaxPhiR
 , propSumPhi
 , TestPoint (..)
+, catchNull
 ) where
 
-import Prelude hiding (sum, product)
+import Prelude hiding (sum, product, span)
 import qualified Data.Map as M
 import qualified Data.Set as S
 import qualified Data.MemoTrie as Memo
 import Data.List (intercalate)
-import Data.Maybe (maybeToList, catMaybes)
+import Data.Maybe (maybeToList, catMaybes, fromJust)
 import Control.Monad (forM_)
 import Control.Monad.Writer (execWriter, tell)
 import Control.Applicative ((<$>), (<*>), (<|>))
@@ -44,6 +51,7 @@ import Test.QuickCheck hiding (label, labels)
 
 import Debug.Trace (trace)
 
+import Proof.Utils
 import Proof.LogMath
 
 nub :: Ord a => [a] -> [a]
@@ -92,6 +100,17 @@ data Tree a
 size :: Tree a -> Int
 size Leaf{} = 1
 size (Branch _ l r) = 1 + size l + size r
+
+beg :: Tree a -> Pos
+beg Leaf{..}    = pos
+beg Branch{..}  = beg leftT 
+
+end :: Tree a -> Pos
+end Leaf{..}    = pos
+end Branch{..}  = end rightT 
+
+span :: Tree a -> (Pos, Pos)
+span tree = (beg tree, end tree)
 
 instance Arbitrary a => Arbitrary (Tree a) where
     arbitrary = do
@@ -389,9 +408,23 @@ sumPhi :: (Ord a, Memo.HasTrie a) => Active a -> Nerf a
        -> Pos -> Pos -> a -> Maybe Phi
 sumPhi = alpha alphaSum
 
+sumPhiSpan :: (Ord a, Memo.HasTrie a) => Active a -> Nerf a
+           -> Pos -> Pos -> Maybe Phi
+sumPhiSpan active nerf i j = catchNull sum $ catMaybes
+    [ sumPhi active nerf i j x
+    | x <- labels nerf ]
+
 sumPhi' :: Ord a => Active a -> Nerf a -> Pos -> Pos -> a -> Maybe Phi
 sumPhi' active nerf i j x = catchNull sum 
     [phiTree nerf t | t <- treeSet active nerf i j x]
+
+-- | Probability of a tree (in logarithimc scale, of course).
+probTree :: (Ord a, Memo.HasTrie a) => Active a -> Nerf a -> Tree a -> Phi
+probTree active nerf tree =
+    phiTree nerf tree ./. z 
+  where
+    (p, q) = span tree
+    z = fromJust $ sumPhiSpan active nerf p q
 
 -- | Beta computation.
 beta :: (Ord a, Memo.HasTrie a)
@@ -444,11 +477,6 @@ maxPhiR' active nerf p q i j x = catchNull maximum
     , t  <- treeSet active nerf p q y
     , t' <- maybeToList $ subTree i j t
     , label t' == x ]
-
-catchNull :: ([a] -> b) -> [a] -> Maybe b
-catchNull f xs
-    | null xs   = Nothing
-    | otherwise = Just $ f xs
 
 ------------------------------------------------------------------------------
 
@@ -506,12 +534,3 @@ propMaxPhiR test =
     nerf = nerfFromDesc $ testNerf test
     active = activeFromDesc $ testActive test
     (i, j, x) = testComp test
-
-(~==) :: RealFrac a => Maybe a -> Maybe a -> Bool
-Just x ~== Just y =
-    x == y || (1 - eps <= z && z <= 1 + eps)
-  where
-    z = x / y
-    eps = 1.0e-10
-Nothing ~== Nothing = True
-_ ~== _ = False
