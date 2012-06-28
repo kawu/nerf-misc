@@ -4,10 +4,14 @@ module Proof.Tree
 ( Pos
 , Phi
 , Tree (..)
+, TreeP (..)
+, mkTreeP
+, unTreeP
 , size
 , beg
 , end
 , span
+, isSubTree
 , Rule (..)
 , Nerf (..)
 , NerfDesc (..)
@@ -37,6 +41,12 @@ module Proof.Tree
 , propSumPhi
 , TestPoint (..)
 , catchNull
+
+, Feature (..)
+, FeatDesc (..)
+, featFromDesc
+, featureNum
+, featureNumP
 ) where
 
 import Prelude hiding (sum, product, span)
@@ -65,12 +75,13 @@ arbitrarySet kMax gen = do
     nub <$> vectorOf k gen
 
 -- | QuickCheck parameters.
-posMax    = 6
+posMax    = 4
 labelMax  = 4
 ruleMax   = 10
 phiMax    = 10.0
 descMax   = 250
 activeMax = 250
+featMax   = 10
 
 -- | Position in a sentence (positive).
 type Pos = Int
@@ -254,7 +265,7 @@ nerfFromDesc NerfDesc{..} =
         Nothing -> []
     phiWith phiMap i x = case (i, x) `M.lookup` phiMap of
         Just v  -> v
-        Nothing -> 0.0  -- log 1.0
+        Nothing -> one
 
 arbitraryPhiBase :: [a] -> Gen (Pos, a)
 arbitraryPhiBase labels = (,) <$> arbitraryPos <*> elements labels 
@@ -333,6 +344,14 @@ subTreeP i j tree
     | otherwise = Nothing
   where
     (p, q) = spanP tree
+
+-- | Check, if one tree is a subtree of the second tree.
+isSubTree :: Eq a => Tree a -> Tree a -> Bool
+isSubTree s t = case subTree p q t of
+    Just s' -> s == s'
+    Nothing -> False
+  where
+    (p, q) = span s
 
 -- | Operation definitions for alpha (and beta) computations. 
 -- With Alpha you can represent algorithms like sum-product
@@ -426,7 +445,7 @@ sumPhi' active nerf i j x = catchNull sum
     [phiTree nerf t | t <- treeSet active nerf i j x]
 
 -- | Probability of a tree (in logarithimc scale, of course).
-probTree :: (Ord a, Memo.HasTrie a) => Active a -> Nerf a -> Tree a -> Phi
+probTree :: (Ord a, Memo.HasTrie a) => Active a -> Nerf a -> Tree a -> Double
 probTree active nerf tree =
     phiTree nerf tree ./. z 
   where
@@ -485,31 +504,96 @@ maxPhiR' active nerf p q i j x = catchNull maximum
     , t' <- maybeToList $ subTree i j t
     , label t' == x ]
 
+
+-- | Feature component functions tell, if on a given tree
+-- position (base or rule) the feature is present. Note, that
+-- this is an abstract representation of model feature and it
+-- will be used only in the context of QuickCheck.
+data Feature a = Feature
+    { featBase :: Pos -> a -> Bool
+    , featRule :: RulePos -> Rule a -> Bool }
+
+-- | Logarithm of a number of features of given type in a tree.
+featureNum :: Feature a -> Tree a -> Double
+featureNum feat = log . fromIntegral . featureNumP feat . mkTreeP
+
+-- | Number of features of a given type in a (position) tree.
+featureNumP :: Feature a -> TreeP a -> Int
+featureNumP Feature{..} LeafP{..} = fromEnum $ featBase posP labelP
+featureNumP feat root
+    = fromEnum (featRule feat rulePos rule)
+    + featureNumP feat left
+    + featureNumP feat right
+  where
+    rulePos = (begP left, endP left, endP right)
+    rule    = Rule (labelP left) (labelP root) (labelP right)
+    left    = leftP root
+    right   = rightP root
+
+data FeatDesc a = FeatDesc
+    { featBaseD :: M.Map (Pos, a) Bool
+    , featRuleD :: M.Map (RulePos, Rule a) Bool }
+    deriving Show
+
+featFromDesc :: Ord a => FeatDesc a -> Feature a
+featFromDesc FeatDesc{..} = Feature featBase featRule
+  where
+    featBase = featWith featBaseD
+    featRule = featWith featRuleD
+    featWith featMap i x = case (i, x) `M.lookup` featMap of
+        Just v  -> v
+        Nothing -> False
+
+arbitraryFeatDesc :: Ord a => [a] -> Gen (FeatDesc a)
+arbitraryFeatDesc labels = do
+    featBase <- featWith arbitraryPhiBase
+    featRule <- featWith arbitraryPhiRule
+    return $ FeatDesc featBase featRule
+  where
+    featWith gen = do
+        k <- choose (0, featMax)
+        xs <- vectorOf k (gen labels)
+        vs <- vectorOf k arbitrary
+        return $ M.fromList $ zip xs vs
+
 ------------------------------------------------------------------------------
 
 data TestPoint a = TestPoint
     { testNerf   :: NerfDesc a
     , testActive :: ActiveDesc a
     , testSpan   :: (Pos, Pos)
-    , testComp   :: (Pos, Pos, a) }
+    , testComp   :: (Pos, Pos, a)
+    , testTree   :: Maybe (Tree a)
+    , testFeat   :: FeatDesc a }
 
 instance Show a => Show (TestPoint a) where
     show TestPoint{..} = execWriter $ do
         tell "=== nerf ===\n"
         tell $ show testNerf 
+        tell "\n=== active ===\n"
+        tell $ show testActive 
         tell "\n=== test size ==\n"
         tell $ show testSpan
         tell "\n=== computation ==\n"
         tell $ show testComp
+        tell "\n=== tree ==\n"
+        tell $ show testTree
+        tell "\n=== feature ==\n"
+        tell $ show testFeat
 
 instance (Ord a, Arbitrary a) => Arbitrary (TestPoint a) where
     arbitrary = do
-        nerfDesc <- arbitrary
-        active <- arbitraryActive $ labelsD nerfDesc
+        nerf   <- arbitrary
+        active <- arbitraryActive $ labelsD nerf
         (p, q) <- arbitrarySpan
         (i, j) <- arbitrarySpan `suchThat` \(i, j) -> p <= i && j <= q
-        x <- elements $ labelsD nerfDesc
-        return $ TestPoint nerfDesc active (p, q) (i, j, x)
+        x      <- elements $ labelsD nerf
+        tree   <- case treeSet (activeFromDesc active)
+                               (nerfFromDesc nerf) i j x of
+                    [] -> return Nothing
+                    xs -> Just <$> elements xs
+        feat   <- arbitraryFeatDesc $ labelsD nerf
+        return $ TestPoint nerf active (p, q) (i, j, x) tree feat
 
 propMaxPhi :: (Show a, Ord a, Memo.HasTrie a) => TestPoint a -> Bool
 propMaxPhi test =

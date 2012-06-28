@@ -2,11 +2,21 @@
 
 module Proof.Forest
 ( Forest
+, spanF
 , forestSet
+, hasTree
+, phiForest
+, probForest
+, sumPhiF
+, featureNumF
+, propSumPhiF
+, propMaxPhiF
+, propMaxPositive
 ) where
 
 import Prelude hiding (sum, product)
 import Data.Maybe (catMaybes)
+import Data.List (foldl')
 import Control.Applicative ((<$>), (<*>), pure)
 import qualified Data.MemoTrie as Memo
 
@@ -40,6 +50,10 @@ checkForest f = and [end t < beg t' | (t, t') <- zip f (tail f)]
 spanF :: Forest a -> Maybe (Pos, Pos)
 spanF [] = Nothing
 spanF xs = Just (beg $ head xs, end $ last xs)
+
+-- | Check, if forest has a given tree.
+hasTree :: Eq a => Forest a -> Tree a -> Bool
+hasTree f t = any (t==) f
 
 -- | Potential of a given forest.
 phiForest :: Nerf a -> Forest a -> Phi
@@ -92,7 +106,7 @@ maxPhiF' active nerf i j = maximum
 
 -- | Probability of a given forest with respect to a given range.
 probForest :: (Ord a, Memo.HasTrie a) => Active a -> Nerf a
-           -> Pos -> Pos -> Forest a -> Phi
+           -> Pos -> Pos -> Forest a -> Double
 probForest active nerf p q f
     | i >= p && j <= q = phiForest nerf f ./. sumPhiF active nerf p q
     | otherwise = error "probForest: forest outside the range"
@@ -100,6 +114,11 @@ probForest active nerf p q f
     (i, j) = case spanF f of
         Just (i, j) -> (i, j)
         Nothing     -> (p, q)
+
+featureNumF :: Feature a -> Forest a -> Double
+featureNumF feat =
+    let sum' = foldl' (+) 0 -- standard sum function
+    in  log . fromIntegral . sum' . map (featureNumP feat . mkTreeP)
 
 --
 -- QuickCheck properties
