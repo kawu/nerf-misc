@@ -24,6 +24,7 @@ module Proof.Tree
 , alphaMax
 , alphaSum
 , maxPhi
+, maxPhiSpan
 , maxPhi'
 , sumPhi
 , sumPhi'
@@ -68,8 +69,8 @@ posMax    = 6
 labelMax  = 4
 ruleMax   = 10
 phiMax    = 10.0
-descMax   = 100
-activeMax = 100
+descMax   = 250
+activeMax = 250
 
 -- | Position in a sentence (positive).
 type Pos = Int
@@ -398,6 +399,12 @@ alpha AlphaM{..} active Nerf{..} = alphaM
 maxPhi :: (Ord a, Memo.HasTrie a) => Active a -> Nerf a
        -> Pos -> Pos -> a -> Maybe Phi
 maxPhi = alpha alphaMax
+
+maxPhiSpan :: (Ord a, Memo.HasTrie a) => Active a -> Nerf a
+           -> Pos -> Pos -> Maybe Phi
+maxPhiSpan active nerf i j = catchNull maximum $ catMaybes
+    [ maxPhi active nerf i j x
+    | x <- labels nerf ]
 
 -- | Find tree with a maximum potential -- definition.
 maxPhi' :: Ord a => Active a -> Nerf a -> Pos -> Pos -> a -> Maybe Phi
