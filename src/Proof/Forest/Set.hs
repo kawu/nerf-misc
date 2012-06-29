@@ -5,7 +5,6 @@ module Proof.Forest.Set
 import Proof.Nerf
 import Proof.Tree
 import Proof.Forest.Internal
-import qualified Proof.Rule as R
 
 -- | Recursively build a forest set per given span.
 forestSet :: Nerf a -> Pos -> Pos -> [Forest a]

@@ -14,7 +14,7 @@ import Control.Applicative ((<$>), (<*>), (<|>))
 
 import Proof.Nerf
 import Proof.Utils
-import Proof.Tree.Internal hiding (left, right)
+import Proof.Tree.Internal
 
 -- | Operation definitions for alpha (and beta) computations. 
 -- With Alpha you can represent algorithms like sum-product

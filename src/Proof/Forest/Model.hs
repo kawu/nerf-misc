@@ -3,22 +3,32 @@
 module Proof.Forest.Model
 ( phi
 , prob  
+, normZ
+, normN
+
+, probTree
+, probTree'
+, probSpan
+, probSpan'
+
 , sumPhi
 , sumPhi'
 , maxPhi
 , maxPhi'
-, featureNum
+
+, featNum
+, expFeatNum
+, expFeatNum'
 ) where
 
 import Prelude hiding (span)
 import qualified Data.MemoTrie as Memo
 
 import Proof.Nerf
-import qualified Proof.Tree as T
-import qualified Proof.Feature as F
 import Proof.Forest.Internal
 import Proof.Forest.Set
 import Proof.Forest.Gamma
+import qualified Proof.Tree as T
   
 -- | Potential of a given forest.
 phi :: Nerf a -> Forest a -> Phi
@@ -28,7 +38,7 @@ phi nerf f = product [T.phi nerf t | t <- f]
 prob :: (Ord a, Memo.HasTrie a) => Nerf a
      -> Pos -> Pos -> Forest a -> LogDouble
 prob nerf p q f
-    | i >= p && j <= q = phi nerf f / sumPhi nerf p q
+    | i >= p && j <= q = phi nerf f / normZ nerf p q
     | otherwise = error "probForest: forest outside the range"
   where
     (i, j) = case span f of
@@ -48,9 +58,65 @@ maxPhi' nerf i j = maximum
 
 maxPhi :: (Ord a, Memo.HasTrie a) => Nerf a -> Pos -> Pos -> Phi
 maxPhi nerf = gamma (gammaMax nerf) nerf
+              
+normZ :: (Ord a, Memo.HasTrie a) => Nerf a -> Pos -> Pos -> Phi
+normZ = sumPhi
 
--- | FIXME: Tree-level featureNum is in Feature module, this is in
--- Forest.Model module. This is inconsistent.
-featureNum :: F.Feature a -> Forest a -> LogDouble
-featureNum feat =
-    fromIntegral . sum . map (F.featureNumP feat . T.mkTreeP)
+-- | Forest-level normalization factor.
+normN :: (Ord a, Memo.HasTrie a) => Nerf a
+      -> Pos -> Pos -> Pos -> Pos -> LogDouble
+normN nerf p q i j =
+    let z = normZ nerf
+    in  z p (i-1) * z (j+1) q / z p q
+
+-- | Probability, that the tree is located on the given span (base definition).
+probTree' :: (Ord a, Memo.HasTrie a) => Nerf a -> T.Tree a
+          -> Pos -> Pos -> Pos -> Pos -> LogDouble
+probTree' nerf tree p q i j = sum
+    [ prob nerf p q forest
+    | forest <- forestSet nerf p q
+    , forest `hasTree` tree ]
+        
+-- | Probability, that the tree is located on the given span.  
+probTree :: (Ord a, Memo.HasTrie a) => Nerf a -> T.Tree a
+         -> Pos -> Pos -> Pos -> Pos -> LogDouble
+probTree nerf tree p q i j =
+    let n = normN nerf
+    in  T.phi nerf tree * n p q i j 
+
+-- | Probability, that some tree is located on the given span (base definition).
+probSpan' :: (Ord a, Memo.HasTrie a) => Nerf a
+          -> Pos -> Pos -> Pos -> Pos -> LogDouble
+probSpan' nerf p q i j = sum
+    [ probTree nerf tree p q i j
+    | tree <- T.treeSet nerf i j ]
+
+-- | Probability, that some tree is located on the given span. 
+probSpan :: (Ord a, Memo.HasTrie a) => Nerf a
+         -> Pos -> Pos -> Pos -> Pos -> LogDouble
+probSpan nerf p q i j = 
+    z i j * n p q i j        
+  where
+    z = T.norm nerf
+    n = normN nerf
+
+-- | Number of features of given type in a forest.
+featNum :: Feature a -> Forest a -> LogDouble
+featNum feat =
+    fromIntegral . sum . map (T.featNumP feat . T.mkTreeP)
+
+-- | Expected number of features in a sentence (base version).
+expFeatNum' :: (Ord a, Memo.HasTrie a) => Nerf a 
+            -> Feature a -> Pos -> Pos -> LogDouble
+expFeatNum' nerf feat p q = sum
+    [ prob nerf p q forest * featNum feat forest
+    | forest <- forestSet nerf p q ]
+
+-- | Expected number of features in a sentence (optimized version).
+-- FIXME: Optimize this function.
+expFeatNum :: (Ord a, Memo.HasTrie a) => Nerf a 
+           -> Feature a -> Pos -> Pos -> LogDouble
+expFeatNum nerf feat p q = sum
+    [ probSpan nerf p q i j *
+      T.expFeatNum nerf feat i j
+    | i <- [p..q], j <- [i..q] ]

@@ -6,7 +6,7 @@ module Proof.Forest.Internal
 ) where
 
 import Prelude hiding (span)
-import Proof.Base
+import Proof.Nerf
 import Proof.Tree hiding (span)
 
 -- | Invariant: trees in a forest are preserved in ascending order

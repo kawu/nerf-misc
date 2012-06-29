@@ -20,7 +20,6 @@ import Test.QuickCheck
 
 import Proof.Nerf
 import Proof.Utils
-import Proof.Feature
 import qualified Proof.Tree as T
 
 -- | FIXME: When Model is imported, Internal and Set should be 
@@ -255,4 +254,36 @@ propMaxPhi test = (~==)
     (maxPhi' nerf i j)
   where
     nerf = nerfFromDesc $ testNerf test
+    (i, j, _x) = testComp test
+
+propProbTree :: (Show a, Ord a, Memo.HasTrie a) => Test a -> Bool
+propProbTree test =
+  case mTree of
+    Just tree -> (~==)
+        (probTree  nerf tree p q i j)
+        (probTree' nerf tree p q i j)
+    Nothing -> True
+  where
+    nerf = nerfFromDesc $ testNerf test
+    mTree = testTree test
+    (p, q) = testSpan test
+    (i, j, _x) = testComp test
+
+propProbSpan :: (Show a, Ord a, Memo.HasTrie a) => Test a -> Bool
+propProbSpan test = (~==)
+    (probSpan  nerf p q i j)
+    (probSpan' nerf p q i j)
+  where
+    nerf = nerfFromDesc $ testNerf test
+    (p, q) = testSpan test
+    (i, j, _x) = testComp test
+
+propExpFeatNum :: (Show a, Ord a, Memo.HasTrie a) => Test a -> Bool
+propExpFeatNum test = (~==)
+    (expFeatNum  nerf feat p q)
+    (expFeatNum' nerf feat p q)
+  where
+    nerf = nerfFromDesc $ testNerf test
+    feat = featFromDesc $ testFeat test
+    (p, q) = testSpan test
     (i, j, _x) = testComp test

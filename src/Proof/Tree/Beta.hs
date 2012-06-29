@@ -8,7 +8,7 @@ import qualified Data.MemoTrie as Memo
 
 import Proof.Nerf
 import Proof.Tree.Alpha
-import Proof.Tree.Internal hiding (left, right)
+import Proof.Tree.Internal
 
 -- | Beta computation.
 beta :: (Ord a, Memo.HasTrie a)

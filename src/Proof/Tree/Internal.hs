@@ -20,15 +20,15 @@ module Proof.Tree.Internal
 import Prelude hiding (span)
 import Control.Applicative ((<$>), (<*>), (<|>))
 
-import Proof.Base
+import Proof.Nerf
 
 -- | Binary tree.
 data Tree a
-    = Branch { label :: a
-             , left  :: (Tree a)
-             , right :: (Tree a) }
-    | Leaf   { label :: a
-             , pos   :: Pos }
+    = Branch { label  :: a
+             , leftT  :: (Tree a)
+             , rightT :: (Tree a) }
+    | Leaf   { label  :: a
+             , pos    :: Pos }
     deriving (Show, Eq, Ord)
 
 size :: Tree a -> Int
@@ -37,11 +37,11 @@ size (Branch _ l r) = 1 + size l + size r
 
 beg :: Tree a -> Pos
 beg Leaf{..}    = pos
-beg Branch{..}  = beg left 
+beg Branch{..}  = beg leftT 
 
 end :: Tree a -> Pos
 end Leaf{..}    = pos
-end Branch{..}  = end right 
+end Branch{..}  = end rightT 
 
 span :: Tree a -> (Pos, Pos)
 span tree = (beg tree, end tree)
@@ -71,8 +71,8 @@ mkTreeP :: Tree a -> TreeP a
 mkTreeP Leaf{..}   = LeafP label pos
 mkTreeP Branch{..} = BranchP label leftP rightP (p, q)
   where
-    leftP  = mkTreeP left
-    rightP = mkTreeP right
+    leftP  = mkTreeP leftT
+    rightP = mkTreeP rightT
     (p, q) = (begP leftP, endP rightP)
 
 unTreeP :: TreeP a -> Tree a

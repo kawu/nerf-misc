@@ -3,6 +3,7 @@
 module Proof.Tree.Model
 ( phi
 , prob  
+, norm
 
 , maxPhiLb'
 , maxPhiLb
@@ -19,6 +20,10 @@ module Proof.Tree.Model
 
 , sumPhiLbR'
 , sumPhiLbR
+
+, featNum
+, featNumP
+, expFeatNum
 ) where  
 
 import Prelude hiding (span)
@@ -93,6 +98,9 @@ sumPhiLb nerf i j x =
 sumPhi :: (Ord a, Memo.HasTrie a) => Nerf a -> Pos -> Pos -> Phi
 sumPhi nerf i j = sum
     [sumPhiLb nerf i j x | x <- labels nerf]
+    
+norm :: (Ord a, Memo.HasTrie a) => Nerf a -> Pos -> Pos -> Phi
+norm = sumPhi
 
 -- | Maximum potential without a subtree on a given value-span (base version).
 maxPhiLbR' :: Ord a => Nerf a -> Pos -> Pos -> Pos -> Pos -> a -> Maybe Phi
@@ -130,3 +138,28 @@ sumPhiLbR nerf p q i j x =
     Nothing -> 0
   where                         
     doIt = beta alphaSum nerf
+
+-- | Number of features of given type in a tree.
+featNum :: Feature a -> Tree a -> LogDouble
+featNum feat = fromIntegral . featNumP feat . mkTreeP
+
+-- | Number of features of a given type in a (position) tree.
+featNumP :: Feature a -> TreeP a -> Int
+featNumP Feature{..} LeafP{..} = fromEnum $ featBase posP labelP
+featNumP feat root
+    = fromEnum (featRule feat rulePos rule)
+    + featNumP feat left
+    + featNumP feat right
+  where
+    rulePos = (begP left, endP left, endP right)
+    rule    = Rule (labelP left) (labelP root) (labelP right)
+    left    = leftP root
+    right   = rightP root
+
+-- | Expected number of features per given tree span.  FIXME: Optimize it, 
+-- use alpha and beta computations.
+expFeatNum :: (Ord a, Memo.HasTrie a) => Nerf a 
+           -> Feature a -> Pos -> Pos -> LogDouble
+expFeatNum nerf feat i j = sum
+    [ prob nerf tree * featNum feat tree
+    | tree <- treeSet nerf i j ]

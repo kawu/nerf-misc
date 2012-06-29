@@ -1,18 +1,39 @@
 {-# LANGUAGE RecordWildCards #-}
 
 module Proof.Nerf
-( Nerf (..)
+( module Proof.LogMath  
+, Pos
 , Phi  
-, module Proof.LogMath  
-, module Proof.Base
-, module Proof.Rule
+, Feature (..)
+, Rule (..)
+, RulePos
+, Nerf (..)
 ) where
 
 import Proof.LogMath
-import Proof.Base
-import Proof.Rule
+
+-- | Position in a sentence (positive).
+type Pos = Int
   
+-- | Type synonym for potential. 
 type Phi = LogDouble
+
+data Rule a = Rule
+    { left  :: a
+    , top   :: a
+    , right :: a }
+    deriving (Show, Eq, Ord)
+
+-- | Data representing position of rule application.
+type RulePos = (Pos, Pos, Pos)
+
+-- | Feature component functions tell, if on a given tree
+-- position (base or rule) the feature is present. Note, that
+-- this is an abstract representation of model feature and it
+-- will be used only in the context of QuickCheck.
+data Feature a = Feature
+    { featBase :: Pos -> a -> Bool
+    , featRule :: RulePos -> Rule a -> Bool }
 
 data Nerf a = Nerf
     -- | List of (distinct) labels.

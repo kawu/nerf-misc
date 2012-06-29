@@ -7,7 +7,6 @@ module Proof.Tree.Set
 
 import Proof.Nerf
 import Proof.Tree.Internal
-import qualified Proof.Rule as R
 
 -- | Tree set per given span.
 treeSet :: Nerf a -> Pos -> Pos -> [Tree a]
@@ -23,10 +22,10 @@ treeSetLb nerf@Nerf{..} i j x
         [ Branch x t_l t_r
         | r <- perTop x
         , k <- [i..j-1]
-        , active i     k (R.left r)
-        , active (k+1) j (R.right r)
-        , t_l <- treeSetLb nerf i     k (R.left r)
-        , t_r <- treeSetLb nerf (k+1) j (R.right r) ]
+        , active i     k (left r)
+        , active (k+1) j (right r)
+        , t_l <- treeSetLb nerf i     k (left r)
+        , t_r <- treeSetLb nerf (k+1) j (right r) ]
     | otherwise = error "treeSet: i > j"
 
 {-
@@ -39,7 +38,7 @@ treeSetLb nerf@Nerf{..} i j x
         [ Branch x t_l t_r
         | r <- perTop x
         , k <- [i..j-1]
-        , t_l <- treeSetLb nerf i     k (R.left r)
-        , t_r <- treeSetLb nerf (k+1) j (R.right r) ]
+        , t_l <- treeSetLb nerf i     k (left r)
+        , t_r <- treeSetLb nerf (k+1) j (right r) ]
     | otherwise = error "treeSet: i > j"
 -}

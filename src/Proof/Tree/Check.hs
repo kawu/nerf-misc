@@ -37,9 +37,6 @@ arbitrarySet kMax gen = do
     k <- choose (1, kMax)
     nub <$> vectorOf k gen
 
--- | Value of potential (in logarithmic scale).
-type Phi = LogDouble
-
 arbitraryPos :: Gen Pos
 arbitraryPos = choose (1, posMax)
 
