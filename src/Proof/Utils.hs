@@ -1,18 +1,30 @@
 module Proof.Utils
 ( (~==)
-,  catchNull
+, eqMaybe  
+, catchNull
+, nub
 ) where
+
+import qualified Data.Set as S
+  
+import Proof.LogMath
+
+eqMaybe :: (a -> a -> Bool) -> Maybe a -> Maybe a -> Bool
+eqMaybe eq (Just x) (Just y) = x `eq` y
+eqMaybe eq Nothing  Nothing  = True
+eqMaybe eq _        _        = False
+
+(~==) :: LogDouble -> LogDouble -> Bool
+LogDouble x ~== LogDouble y = 
+    x == y || (1 - eps <= z && z <= 1 + eps)
+  where
+    z = x / y
+    eps = 1.0e-10
 
 catchNull :: ([a] -> b) -> [a] -> Maybe b
 catchNull f xs
     | null xs   = Nothing
     | otherwise = Just $ f xs
 
-(~==) :: RealFrac a => Maybe a -> Maybe a -> Bool
-Just x ~== Just y =
-    x == y || (1 - eps <= z && z <= 1 + eps)
-  where
-    z = x / y
-    eps = 1.0e-10
-Nothing ~== Nothing = True
-_ ~== _ = False
+nub :: Ord a => [a] -> [a]
+nub = S.toList . S.fromList
