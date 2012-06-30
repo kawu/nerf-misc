@@ -10,7 +10,8 @@ import Proof.Nerf
 import Proof.Tree.Alpha
 import Proof.Tree.Internal
 
--- | Beta computation.
+-- | Beta computation.  FIXME: take alpha computation as argument (to
+-- avoid duplicate computations, e.g. in T.expFeatNum).
 beta :: (Ord a, Memo.HasTrie a)
      => AlphaM b -> Nerf a -> Pos -> Pos
      -> Pos -> Pos -> a -> Maybe b

@@ -15,8 +15,8 @@ eqMaybe eq Nothing  Nothing  = True
 eqMaybe eq _        _        = False
 
 (~==) :: LogDouble -> LogDouble -> Bool
-LogDouble x ~== LogDouble y = 
-    x == y || (1 - eps <= z && z <= 1 + eps)
+x ~== y = 
+    x == y || (1 <= z + eps && z <= 1 + eps)
   where
     z = x / y
     eps = 1.0e-10

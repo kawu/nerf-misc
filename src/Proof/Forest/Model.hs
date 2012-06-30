@@ -113,10 +113,11 @@ expFeatNum' nerf feat p q = sum
     | forest <- forestSet nerf p q ]
 
 -- | Expected number of features in a sentence (optimized version).
--- FIXME: Optimize this function.
 expFeatNum :: (Ord a, Memo.HasTrie a) => Nerf a 
            -> Feature a -> Pos -> Pos -> LogDouble
 expFeatNum nerf feat p q = sum
-    [ probSpan nerf p q i j *
-      T.expFeatNum nerf feat i j
+    [ probSpan' i j * expFeatNum' feat i j
     | i <- [p..q], j <- [i..q] ]
+  where
+    expFeatNum' = T.expFeatNum nerf
+    probSpan'   = probSpan nerf p q   -- ^ TODO: Remove p, q args?

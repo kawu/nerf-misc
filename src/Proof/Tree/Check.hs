@@ -29,7 +29,7 @@ ruleMax   = 100
 phiMax    = 10.0
 descMax   = 100
 activeMax = 25
--- featMax   = 10
+featMax   = 10
 
 -- | Arbitrary set of maximum kMax elements (minimum 1).
 arbitrarySet :: Ord a => Int -> Gen a -> Gen [a]
@@ -169,12 +169,40 @@ instance (Ord a, Arbitrary a) => Arbitrary (NerfDesc a) where
             vs <- vectorOf k $ arbitraryPhi
             return $ M.fromList $ zip xs vs
 
+data FeatDesc a = FeatDesc
+    { featBaseD :: M.Map (Pos, a) Bool
+    , featRuleD :: M.Map (RulePos, Rule a) Bool }
+    deriving Show
+
+featFromDesc :: Ord a => FeatDesc a -> Feature a
+featFromDesc FeatDesc{..} = Feature featBase featRule
+  where
+    featBase = featWith featBaseD
+    featRule = featWith featRuleD
+    featWith featMap i x = case (i, x) `M.lookup` featMap of
+        Just v  -> v
+        Nothing -> False
+
+arbitraryFeatDesc :: Ord a => [a] -> Gen (FeatDesc a)
+arbitraryFeatDesc labels = do
+    featBase <- featWith arbitraryPhiBase
+    featRule <- featWith arbitraryPhiRule
+    return $ FeatDesc featBase featRule
+  where
+    featWith gen = do
+        k <- choose (0, featMax)
+        xs <- vectorOf k (gen labels)
+        vs <- vectorOf k arbitrary
+        return $ M.fromList $ zip xs vs
+
+
 ------------------------------------------------------------------------------
 
 data Test a = Test
     { testNerf   :: NerfDesc a
     , testSpan   :: (Pos, Pos)
-    , testComp   :: (Pos, Pos, a) }
+    , testComp   :: (Pos, Pos, a)
+    , testFeat   :: FeatDesc a }
 
 instance Show a => Show (Test a) where
     show Test{..} = execWriter $ do
@@ -184,6 +212,8 @@ instance Show a => Show (Test a) where
         tell $ show testSpan
         tell "\n=== computation ==\n"
         tell $ show testComp
+        tell "\n=== feature ==\n"
+        tell $ show testFeat
 
 instance (Ord a, Arbitrary a) => Arbitrary (Test a) where
     arbitrary = do
@@ -191,7 +221,8 @@ instance (Ord a, Arbitrary a) => Arbitrary (Test a) where
         (p, q) <- arbitrarySpan
         (i, j) <- arbitrarySpan `suchThat` \(i, j) -> p <= i && j <= q
         x      <- elements $ labelsD nerf
-        return $ Test nerf (p, q) (i, j, x)
+        feat   <- arbitraryFeatDesc $ labelsD nerf
+        return $ Test nerf (p, q) (i, j, x) feat
 
 propMaxPhi :: (Show a, Ord a, Memo.HasTrie a) => Test a -> Bool
 propMaxPhi test = eqMaybe (~==) 
@@ -226,3 +257,13 @@ propSumPhiR test = (~==)
     nerf = nerfFromDesc $ testNerf test
     (p, q) = testSpan test
     (i, j, x) = testComp test
+
+propExpFeatNum :: (Show a, Ord a, Memo.HasTrie a) => Test a -> Bool
+propExpFeatNum test = (~==)
+    (expFeatNum  nerf feat p q)
+    (expFeatNum' nerf feat p q)
+  where
+    nerf = nerfFromDesc $ testNerf test
+    feat = featFromDesc $ testFeat test
+    (p, q) = testSpan test
+    (i, j, _x) = testComp test

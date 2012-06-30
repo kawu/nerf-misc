@@ -23,7 +23,9 @@ module Proof.Tree.Model
 
 , featNum
 , featNumP
+
 , expFeatNum
+, expFeatNum'
 ) where  
 
 import Prelude hiding (span)
@@ -156,10 +158,34 @@ featNumP feat root
     left    = leftP root
     right   = rightP root
 
--- | Expected number of features per given tree span.  FIXME: Optimize it, 
--- use alpha and beta computations.
-expFeatNum :: (Ord a, Memo.HasTrie a) => Nerf a 
-           -> Feature a -> Pos -> Pos -> LogDouble
-expFeatNum nerf feat i j = sum
+-- | Expected number of features per given tree span.
+expFeatNum' :: (Ord a, Memo.HasTrie a) => Nerf a 
+            -> Feature a -> Pos -> Pos -> LogDouble
+expFeatNum' nerf feat i j = sum
     [ prob nerf tree * featNum feat tree
     | tree <- treeSet nerf i j ]
+    
+-- | Expected number of features per given tree span (optimized version).
+expFeatNum :: (Ord a, Memo.HasTrie a) => Nerf a 
+           -> Feature a -> Pos -> Pos -> LogDouble
+expFeatNum nerf@Nerf{..} Feature{..} p q 
+    | z > 0
+      = sum    
+        [ phiRule (i, k, j) r  *
+          up i k (left r)      *
+          up (k+1) j (right r) *
+          down i j x / z    
+        | i <- [p..q], j <- [i+1..q], k <- [i..j-1]    
+        , x <- labels, r <- perTop x    
+        , featRule (i, k, j) r    
+        , active i     k (left r)    
+        , active (k+1) j (right r) ]
+      + sum    
+        [ phiBase i x * down i i x / z    
+        | i <- [p..q], x <- labels    
+        , featBase i x ]
+    | otherwise = 0
+  where
+    up   = sumPhiLb  nerf
+    down = sumPhiLbR nerf p q
+    z    = norm nerf p q
