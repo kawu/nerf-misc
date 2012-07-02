@@ -184,17 +184,39 @@ searchAdict th digits adict rule sent k = fmap glue $ nub $ do
 
 -- | Cost function for approximate dictionary searching.
 cost :: Int -> Cost Char
+-- | Value n is equall to a length of input word (the word
+-- being searched).
 cost n =
+
     Cost insert delete subst
+
   where
+    -- | Cost of character insertion on position k.  Value of
+    -- inserted character is ignored, only the posMod coefficient
+    -- (definition below) is taken on account. 
     insert k (_, _) = posMod k
+
+    -- | Cost of character deletion on position k.  If deleted
+    -- character is a punctuation character, the posMod coefficient
+    -- is reduced by 0.5. Otherwise, posMod coefficient alone
+    -- is taken on account.
     delete (k, x) _
         | C.isPunctuation x = 0.5 * posMod k
         | otherwise         = posMod k
+
+    -- | Cost of substitution on k-th position in the input word.
+    -- Value x represents a character on this position. Value y
+    -- is a character on the m-th position in the current (with
+    -- respect to searched trie) word (the m value is ignored in
+    -- the definition below). 
     subst (k, x) (m, y)
         | x == y            = 0
         | C.toLower x == y  = 0.5 * posMod k
         | otherwise         = posMod k
+
+    -- | Position coefficient for position k in the input word.
+    -- The further away from the word beginning, the lower the
+    -- coefficient.  Value n is equall to length of the input word.
     posMod k
         | k <= n_2  = 1
         | otherwise = (n - k + 1) ./. (n - n_2 + 1)
