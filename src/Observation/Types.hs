@@ -24,21 +24,22 @@ module Observation.Types
 ) where
 
 import		 Prelude hiding (map)
+import           Control.Monad (guard)
+import           Control.Applicative ((<$>))
 import qualified Data.Set as S
 import qualified Data.Map as M
 import qualified Data.Text as T
 import qualified Data.Char as C
 import qualified Data.List as List
 import qualified Data.Vector.Unboxed as V
-import           Data.Maybe (maybeToList)
-import           Control.Applicative ((<$>))
+import           Data.Maybe (maybeToList, catMaybes)
 import           Numeric (showFFloat)
 import           Data.ListLike.Text
 import           Data.ListLike.Vector
 
-import Data.Adict hiding (levenSearch)
--- import Data.Adict (levenSearch)
-import Data.Adict.Fast (levenSearch)
+import Data.DAWG.Array (DAWGArray)
+import Data.Adict.ShortestPath (search)
+import Data.Adict.CostOrd
 
 import qualified Text.Levels as L
 
@@ -162,63 +163,106 @@ searchDict dict rule sent k = do
         Just entry -> entry
         Nothing    -> []
 
-searchAdict :: L.Segm s => Double -> Int -> Adict Char [T.Text]
+type Adict = DAWGArray (Maybe [T.Text])
+
+searchAdict :: L.Segm s => Double -> Int -> Adict
             -> ObserRule s -> ObserRule s
-searchAdict th digits adict rule sent k = fmap glue $ nub $ do
-    x <- V.fromList . T.unpack <$> rule sent k
-    trace (V.toList x) (return ())
-    trace ("  -> " ++ show (Data.Adict.lookup (V.toList x) adict)) (return ())
-    let n = V.length x
-    (entry, w) <- levenSearch (cost n) (threshold th n) x adict
-    y <- info entry
-    trace ("  => " ++ word entry ++ " (" ++ T.unpack y
-           ++ ", " ++ show w ++ ")") $
-        return (y, w)
+searchAdict th digits adict rule sent k = do
+
+    x <- T.unpack <$> rule sent k
+    (_, info, w) <- maybeToList $ doSearch x
+    y <- info
+
+    let weight (_, _, w) = w
+    let ws = fmap weight $ catMaybes $ fmap doSearch $ versions x
+    guard (w <= minimum (w:ws))
+
+    let r = (if w > 0 then '?' else '!') `T.cons` y
+    trace (T.unpack r) $ return r
+
   where
-    nub = M.toList . M.fromListWith min
-    glue (y, w) = y `T.append` T.pack (roundFloat w)
-    roundFloat x = take (digits+2) $ showFFloat (Just digits) x ""
+
+    doSearch x =
+        let n = length x
+        in  search (cost n) (threshold th n) (V.fromList x) adict
+
     threshold base n
-        | n > 15    = base * 15
+        | n > 10    = base * 10
         | otherwise = base * fromIntegral n
 
--- | Cost function for approximate dictionary searching.
-cost :: Int -> Cost Char
--- | Value n is equall to a length of input word (the word
--- being searched).
+    versions [] = []
+    versions xs
+        | not (any C.isUpper xs) = []
+        | otherwise = [fmap C.toLower xs]
+
+    notify (x, (form, info, w))
+        =  x ++ "  => " ++ form
+        ++ " (" ++ T.unpack (T.intercalate ", " info)
+        ++ "; " ++ show w ++ ")"
+
+cost :: Int -> CostOrd
 cost n =
 
-    Cost insert delete subst
+    CostOrd insert delete subst posMod
 
   where
-    -- | Cost of character insertion on position k.  Value of
-    -- inserted character is ignored, only the posMod coefficient
-    -- (definition below) is taken on account. 
-    insert k (_, _) = posMod k
 
-    -- | Cost of character deletion on position k.  If deleted
-    -- character is a punctuation character, the posMod coefficient
-    -- is reduced by 0.5. Otherwise, posMod coefficient alone
-    -- is taken on account.
-    delete (k, x) _
-        | C.isPunctuation x = 0.5 * posMod k
-        | otherwise         = posMod k
+    insert = [Filter (const True) 1]
 
-    -- | Cost of substitution on k-th position in the input word.
-    -- Value x represents a character on this position. Value y
-    -- is a character on the m-th position in the current (with
-    -- respect to searched trie) word (the m value is ignored in
-    -- the definition below). 
-    subst (k, x) (m, y)
-        | x == y            = 0
-        | C.toLower x == y  = 0.5 * posMod k
-        | otherwise         = posMod k
+    delete x
+        | C.isPunctuation x = 0.5
+        | otherwise         = 1
 
-    -- | Position coefficient for position k in the input word.
-    -- The further away from the word beginning, the lower the
-    -- coefficient.  Value n is equall to length of the input word.
+    subst x =
+        [ Filter eq 0
+        , Filter ot 1 ]
+      where
+        eq = (x==)
+        ot = not.eq
+
     posMod k
         | k <= n_2  = 1
         | otherwise = (n - k + 1) ./. (n - n_2 + 1)
     x ./. y = fromIntegral x / fromIntegral y
     n_2 = (n + 1) `div` 2
+
+-- -- | Cost function for approximate dictionary searching.
+-- cost :: Int -> Cost Char
+-- -- | Value n is equall to a length of input word (the word
+-- -- being searched).
+-- cost n =
+-- 
+--     Cost insert delete subst
+-- 
+--   where
+--     -- | Cost of character insertion on position k.  Value of
+--     -- inserted character is ignored, only the posMod coefficient
+--     -- (definition below) is taken on account. 
+--     insert k (_, _) = posMod k
+-- 
+--     -- | Cost of character deletion on position k.  If deleted
+--     -- character is a punctuation character, the posMod coefficient
+--     -- is reduced by 0.5. Otherwise, posMod coefficient alone
+--     -- is taken on account.
+--     delete (k, x) _
+--         | C.isPunctuation x = 0.5 * posMod k
+--         | otherwise         = posMod k
+-- 
+--     -- | Cost of substitution on k-th position in the input word.
+--     -- Value x represents a character on this position. Value y
+--     -- is a character on the m-th position in the current (with
+--     -- respect to searched trie) word (the m value is ignored in
+--     -- the definition below). 
+--     subst (k, x) (m, y)
+--         | x == y            = 0
+--         | C.toLower x == y  = 0.5 * posMod k
+--         | otherwise         = posMod k
+-- 
+--     -- | Position coefficient for position k in the input word.
+--     -- The further away from the word beginning, the lower the
+--     -- coefficient.  Value n is equall to length of the input word.
+--     posMod k
+--         | k <= n_2  = 1
+--         | otherwise = (n - k + 1) ./. (n - n_2 + 1)
+--     x ./. y = fromIntegral x / fromIntegral y
+--     n_2 = (n + 1) `div` 2

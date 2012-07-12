@@ -58,7 +58,7 @@ maxPhi' nerf i j = maximum
 
 maxPhi :: (Ord a, Memo.HasTrie a) => Nerf a -> Pos -> Pos -> Phi
 maxPhi nerf = gamma (gammaMax nerf) nerf
-              
+
 normZ :: (Ord a, Memo.HasTrie a) => Nerf a -> Pos -> Pos -> Phi
 normZ = sumPhi
 

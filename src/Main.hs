@@ -25,7 +25,7 @@ import qualified Format.Plain as Plain
 import qualified Observation.Types as Ob
 import qualified Observation.Selection as Ob
 
-import Data.Adict
+import Data.DAWG.Array (DAWGArray)
 
 -- -- | FIXME: These definitions should be in one place!
 -- -- | Definitions for casual Data.Map dictionary.
@@ -37,7 +37,7 @@ import Data.Adict
 -- decodeDict = B.decodeFile
 -- -- FIXME-END.
 
-type NeDict = Adict Char [T.Text]
+type NeDict = DAWGArray (Maybe [T.Text])
 
 decodeDict :: FilePath -> IO NeDict
 decodeDict = B.decodeFile
@@ -74,7 +74,7 @@ packedShape k = Ob.packedShape $ Ob.orth k
 
 -- | Joined with information, if it is a beginning of a sentence. 
 searchDict dict k = Ob.join "-"
-    (Ob.beg k) (Ob.searchAdict 0.1 1 dict $ Ob.orth k)
+    (Ob.beg k) (Ob.searchAdict 0.2 1 dict $ Ob.orth k)
 -- searchDict dict k = Ob.searchDict dict $ Ob.orth k
 
 -- substring k = Ob.group $ map ($ orth k)
